@@ -1515,6 +1515,228 @@ def get_call_tree(function_address: str, direction: str = "callees", max_depth: 
         "maxDepth": max_depth
     }))
 
+@mcp.tool()
+def parse_c_structure(c_definition: str, category: str = "/") -> str:
+    """
+    Parse and create structures from C-style definitions.
+    
+    Args:
+        c_definition: C-style structure definition
+        category: Category path (default: /)
+        
+    Returns:
+        JSON with created structure info
+    """
+    return safe_post("structures/parse_c_structure", {
+        "cDefinition": c_definition,
+        "category": category
+    })
+
+@mcp.tool()
+def validate_c_structure(c_definition: str) -> str:
+    """
+    Validate C-style structure definition without creating it.
+    
+    Args:
+        c_definition: C-style structure definition to validate
+        
+    Returns:
+        JSON with validation result
+    """
+    return safe_post("structures/validate_c_structure", {
+        "cDefinition": c_definition
+    })
+
+@mcp.tool()
+def create_structure(name: str, size: int = 0, type: str = "structure", category: str = "/", packed: bool = False, description: str = None) -> str:
+    """
+    Create a new empty structure or union.
+    
+    Args:
+        name: Name of the structure
+        size: Initial size (0 for auto-sizing)
+        type: Type: 'structure' or 'union' (default: structure)
+        category: Category path (default: /)
+        packed: Whether structure should be packed
+        description: Description of the structure
+        
+    Returns:
+        JSON with created structure info
+    """
+    params = {
+        "name": name,
+        "size": size,
+        "type": type,
+        "category": category,
+        "packed": packed
+    }
+    if description:
+        params["description"] = description
+    return safe_post("structures/create_structure", params)
+
+@mcp.tool()
+def add_structure_field(structure_name: str, field_name: str, data_type: str, offset: int = None, comment: str = None) -> str:
+    """
+    Add a field to an existing structure.
+    
+    Args:
+        structure_name: Name of the structure
+        field_name: Name of the field
+        data_type: Data type (e.g., 'int', 'char[32]')
+        offset: Offset (for structures, omit to append)
+        comment: Field comment
+        
+    Returns:
+        JSON with success status
+    """
+    params = {
+        "structureName": structure_name,
+        "fieldName": field_name,
+        "dataType": data_type
+    }
+    if offset is not None:
+        params["offset"] = offset
+    if comment:
+        params["comment"] = comment
+    return safe_post("structures/add_structure_field", params)
+
+@mcp.tool()
+def modify_structure_field(structure_name: str, field_name: str = None, offset: int = None, 
+                          new_data_type: str = None, new_field_name: str = None, 
+                          new_comment: str = None, new_length: int = None) -> str:
+    """
+    Modify an existing field in a structure.
+    
+    Args:
+        structure_name: Name of the structure
+        field_name: Name of the field to modify (use this OR offset)
+        offset: Offset of the field to modify (use this OR fieldName)
+        new_data_type: New data type for the field
+        new_field_name: New name for the field
+        new_comment: New comment for the field
+        new_length: New length for the field (advanced)
+        
+    Returns:
+        JSON with success status
+    """
+    params = {"structureName": structure_name}
+    if field_name:
+        params["fieldName"] = field_name
+    if offset is not None:
+        params["offset"] = offset
+    if new_data_type:
+        params["newDataType"] = new_data_type
+    if new_field_name:
+        params["newFieldName"] = new_field_name
+    if new_comment:
+        params["newComment"] = new_comment
+    if new_length is not None:
+        params["newLength"] = new_length
+    return safe_post("structures/modify_structure_field", params)
+
+@mcp.tool()
+def modify_structure_from_c(c_definition: str) -> str:
+    """
+    Modify an existing structure using a C-style definition.
+    
+    Args:
+        c_definition: Complete C structure definition with modifications
+        
+    Returns:
+        JSON with success status
+    """
+    return safe_post("structures/modify_structure_from_c", {
+        "cDefinition": c_definition
+    })
+
+@mcp.tool()
+def get_structure_info(structure_name: str) -> str:
+    """
+    Get detailed information about a structure.
+    
+    Args:
+        structure_name: Name of the structure
+        
+    Returns:
+        JSON with structure info including all fields
+    """
+    return "\n".join(safe_get("structures/get_structure_info", {
+        "structureName": structure_name
+    }))
+
+@mcp.tool()
+def list_structures(category: str = None, name_filter: str = None, include_built_in: bool = False) -> str:
+    """
+    List all structures in a program.
+    
+    Args:
+        category: Filter by category path
+        name_filter: Filter by name (substring match)
+        include_built_in: Include built-in types
+        
+    Returns:
+        JSON with list of structures
+    """
+    params = {"includeBuiltIn": include_built_in}
+    if category:
+        params["category"] = category
+    if name_filter:
+        params["nameFilter"] = name_filter
+    return "\n".join(safe_get("structures/list_structures", params))
+
+@mcp.tool()
+def apply_structure(structure_name: str, address_or_symbol: str, clear_existing: bool = True) -> str:
+    """
+    Apply a structure at a specific address.
+    
+    Args:
+        structure_name: Name of the structure
+        address_or_symbol: Address or symbol name to apply structure
+        clear_existing: Clear existing data
+        
+    Returns:
+        JSON with success status
+    """
+    return safe_post("structures/apply_structure", {
+        "structureName": structure_name,
+        "addressOrSymbol": address_or_symbol,
+        "clearExisting": clear_existing
+    })
+
+@mcp.tool()
+def delete_structure(structure_name: str, force: bool = False) -> str:
+    """
+    Delete a structure from the program.
+    
+    Args:
+        structure_name: Name of the structure to delete
+        force: Force deletion even if structure is referenced (default: false)
+        
+    Returns:
+        JSON with success status or reference warnings
+    """
+    return safe_post("structures/delete_structure", {
+        "structureName": structure_name,
+        "force": force
+    })
+
+@mcp.tool()
+def parse_c_header(header_content: str, category: str = "/") -> str:
+    """
+    Parse an entire C header file and create all structures.
+    
+    Args:
+        header_content: C header file content
+        category: Category path (default: /)
+        
+    Returns:
+        JSON with created types info
+    """
+    return safe_post("structures/parse_c_header", {
+        "headerContent": header_content,
+        "category": category
+    })
+
 
 def main():
     parser = argparse.ArgumentParser(description="MCP server for Ghidra")

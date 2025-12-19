@@ -45,6 +45,18 @@ import ghidra.program.model.listing.Variable;
 import ghidra.app.decompiler.component.DecompilerUtils;
 import ghidra.app.decompiler.ClangToken;
 import ghidra.framework.options.Options;
+import ghidra.app.util.cparser.C.CParser;
+import ghidra.program.model.data.CategoryPath;
+import ghidra.program.model.data.Category;
+import ghidra.program.model.data.DataTypeConflictHandler;
+import ghidra.program.model.data.Composite;
+import ghidra.program.model.data.Structure;
+import ghidra.program.model.data.Union;
+import ghidra.program.model.data.StructureDataType;
+import ghidra.program.model.data.UnionDataType;
+import ghidra.program.model.data.DataTypeComponent;
+import ghidra.program.model.data.BitFieldDataType;
+import ghidra.program.model.data.StandAloneDataTypeManager;
 
 import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpServer;
@@ -793,6 +805,95 @@ public class GhidraMCPPlugin extends Plugin {
             String direction = qparams.getOrDefault("direction", "callees");
             int maxDepth = parseIntOrDefault(qparams.get("maxDepth"), 3);
             sendResponse(exchange, getCallTreeEnhanced(functionAddress, direction, maxDepth));
+        });
+
+        // Structure tools
+        server.createContext("/structures/parse_c_structure", exchange -> {
+            Map<String, String> params = parsePostParams(exchange);
+            String cDefinition = params.get("cDefinition");
+            String category = params.getOrDefault("category", "/");
+            sendResponse(exchange, parseCStructure(cDefinition, category));
+        });
+
+        server.createContext("/structures/validate_c_structure", exchange -> {
+            Map<String, String> params = parsePostParams(exchange);
+            String cDefinition = params.get("cDefinition");
+            sendResponse(exchange, validateCStructure(cDefinition));
+        });
+
+        server.createContext("/structures/create_structure", exchange -> {
+            Map<String, String> params = parsePostParams(exchange);
+            String name = params.get("name");
+            int size = parseIntOrDefault(params.get("size"), 0);
+            String type = params.getOrDefault("type", "structure");
+            String category = params.getOrDefault("category", "/");
+            boolean packed = Boolean.parseBoolean(params.getOrDefault("packed", "false"));
+            String description = params.get("description");
+            sendResponse(exchange, createStructure(name, size, type, category, packed, description));
+        });
+
+        server.createContext("/structures/add_structure_field", exchange -> {
+            Map<String, String> params = parsePostParams(exchange);
+            String structureName = params.get("structureName");
+            String fieldName = params.get("fieldName");
+            String dataType = params.get("dataType");
+            Integer offset = params.get("offset") != null && !params.get("offset").isEmpty() ? parseIntOrDefault(params.get("offset"), 0) : null;
+            String comment = params.get("comment");
+            sendResponse(exchange, addStructureField(structureName, fieldName, dataType, offset, comment));
+        });
+
+        server.createContext("/structures/modify_structure_field", exchange -> {
+            Map<String, String> params = parsePostParams(exchange);
+            String structureName = params.get("structureName");
+            String fieldName = params.get("fieldName");
+            Integer offset = params.get("offset") != null && !params.get("offset").isEmpty() ? parseIntOrDefault(params.get("offset"), 0) : null;
+            String newDataType = params.get("newDataType");
+            String newFieldName = params.get("newFieldName");
+            String newComment = params.get("newComment");
+            Integer newLength = params.get("newLength") != null && !params.get("newLength").isEmpty() ? parseIntOrDefault(params.get("newLength"), 0) : null;
+            sendResponse(exchange, modifyStructureField(structureName, fieldName, offset, newDataType, newFieldName, newComment, newLength));
+        });
+
+        server.createContext("/structures/modify_structure_from_c", exchange -> {
+            Map<String, String> params = parsePostParams(exchange);
+            String cDefinition = params.get("cDefinition");
+            sendResponse(exchange, modifyStructureFromC(cDefinition));
+        });
+
+        server.createContext("/structures/get_structure_info", exchange -> {
+            Map<String, String> qparams = parseQueryParams(exchange);
+            String structureName = qparams.get("structureName");
+            sendResponse(exchange, getStructureInfo(structureName));
+        });
+
+        server.createContext("/structures/list_structures", exchange -> {
+            Map<String, String> qparams = parseQueryParams(exchange);
+            String category = qparams.get("category");
+            String nameFilter = qparams.get("nameFilter");
+            boolean includeBuiltIn = Boolean.parseBoolean(qparams.getOrDefault("includeBuiltIn", "false"));
+            sendResponse(exchange, listStructures(category, nameFilter, includeBuiltIn));
+        });
+
+        server.createContext("/structures/apply_structure", exchange -> {
+            Map<String, String> params = parsePostParams(exchange);
+            String structureName = params.get("structureName");
+            String addressOrSymbol = params.get("addressOrSymbol");
+            boolean clearExisting = Boolean.parseBoolean(params.getOrDefault("clearExisting", "true"));
+            sendResponse(exchange, applyStructure(structureName, addressOrSymbol, clearExisting));
+        });
+
+        server.createContext("/structures/delete_structure", exchange -> {
+            Map<String, String> params = parsePostParams(exchange);
+            String structureName = params.get("structureName");
+            boolean force = Boolean.parseBoolean(params.getOrDefault("force", "false"));
+            sendResponse(exchange, deleteStructure(structureName, force));
+        });
+
+        server.createContext("/structures/parse_c_header", exchange -> {
+            Map<String, String> params = parsePostParams(exchange);
+            String headerContent = params.get("headerContent");
+            String category = params.getOrDefault("category", "/");
+            sendResponse(exchange, parseCHeader(headerContent, category));
         });
 
         server.setExecutor(null);
@@ -5082,6 +5183,543 @@ public class GhidraMCPPlugin extends Plugin {
             buildCalleeTreeRecursive(callees[i], result, depth + 1, maxDepth, new HashSet<>(visited));
         }
         result.append("]}");
+    }
+
+    /**
+     * Parse C structure
+     */
+    private String parseCStructure(String cDefinition, String category) {
+        Program program = getCurrentProgram();
+        if (program == null) return "No program loaded";
+        if (cDefinition == null || cDefinition.isEmpty()) return "C definition is required";
+        try {
+            DataTypeManager dtm = program.getDataTypeManager();
+            CParser parser = new CParser(dtm);
+            
+            int txId = program.startTransaction("Parse C Structure");
+            try {
+                DataType dt = parser.parse(cDefinition);
+                if (dt == null) {
+                    throw new Exception("Failed to parse structure definition");
+                }
+                
+                CategoryPath catPath = new CategoryPath(category);
+                Category cat = dtm.createCategory(catPath);
+                
+                DataType resolved = dtm.resolve(dt, DataTypeConflictHandler.REPLACE_HANDLER);
+                if (cat != null && !resolved.getCategoryPath().equals(catPath)) {
+                    resolved.setName(resolved.getName());
+                    cat.moveDataType(resolved, DataTypeConflictHandler.REPLACE_HANDLER);
+                }
+                
+                program.endTransaction(txId, true);
+                
+                StringBuilder result = new StringBuilder("{\"success\":true,\"name\":\"").append(resolved.getName()).append("\",");
+                result.append("\"size\":").append(resolved.getLength()).append("}");
+                return result.toString();
+            } catch (Exception e) {
+                program.endTransaction(txId, false);
+                return "Error: " + e.getMessage();
+            }
+        } catch (Exception e) {
+            return "Error: " + e.getMessage();
+        }
+    }
+
+    /**
+     * Validate C structure
+     */
+    private String validateCStructure(String cDefinition) {
+        if (cDefinition == null || cDefinition.isEmpty()) return "C definition is required";
+        try {
+            DataTypeManager tempDtm = new StandAloneDataTypeManager("temp");
+            CParser parser = new CParser(tempDtm);
+            
+            try {
+                DataType dt = parser.parse(cDefinition);
+                if (dt == null) {
+                    return "{\"valid\":false,\"error\":\"Invalid structure definition\"}";
+                }
+                
+                StringBuilder result = new StringBuilder("{\"valid\":true,\"parsedType\":\"").append(dt.getName()).append("\",");
+                result.append("\"displayName\":\"").append(dt.getDisplayName()).append("\",");
+                result.append("\"size\":").append(dt.getLength());
+                
+                if (dt instanceof Structure) {
+                    Structure struct = (Structure) dt;
+                    result.append(",\"fieldCount\":").append(struct.getNumComponents()).append(",\"isUnion\":false");
+                } else if (dt instanceof Union) {
+                    Union union = (Union) dt;
+                    result.append(",\"fieldCount\":").append(union.getNumComponents()).append(",\"isUnion\":true");
+                }
+                
+                result.append("}");
+                return result.toString();
+            } catch (Exception e) {
+                return "{\"valid\":false,\"error\":\"" + escapeJsonString(e.getMessage()) + "\"}";
+            } finally {
+                tempDtm.close();
+            }
+        } catch (Exception e) {
+            return "Error: " + e.getMessage();
+        }
+    }
+
+    /**
+     * Create structure
+     */
+    private String createStructure(String name, int size, String type, String category, boolean packed, String description) {
+        Program program = getCurrentProgram();
+        if (program == null) return "No program loaded";
+        if (name == null || name.isEmpty()) return "Structure name is required";
+        try {
+            DataTypeManager dtm = program.getDataTypeManager();
+            CategoryPath catPath = new CategoryPath(category);
+            
+            int txId = program.startTransaction("Create Structure");
+            try {
+                dtm.createCategory(catPath);
+                
+                Composite composite;
+                if ("union".equalsIgnoreCase(type)) {
+                    composite = new UnionDataType(catPath, name, dtm);
+                } else {
+                    composite = new StructureDataType(catPath, name, size, dtm);
+                    if (packed && composite instanceof Structure) {
+                        ((Structure) composite).setPackingEnabled(true);
+                    }
+                }
+                
+                if (description != null) {
+                    composite.setDescription(description);
+                }
+                
+                DataType resolved = dtm.addDataType(composite, DataTypeConflictHandler.REPLACE_HANDLER);
+                
+                program.endTransaction(txId, true);
+                
+                StringBuilder result = new StringBuilder("{\"success\":true,\"name\":\"").append(resolved.getName()).append("\",");
+                result.append("\"size\":").append(resolved.getLength()).append(",\"type\":\"").append(type).append("\"}");
+                return result.toString();
+            } catch (Exception e) {
+                program.endTransaction(txId, false);
+                return "Error: " + e.getMessage();
+            }
+        } catch (Exception e) {
+            return "Error: " + e.getMessage();
+        }
+    }
+
+    /**
+     * Add structure field
+     */
+    private String addStructureField(String structureName, String fieldName, String dataType, Integer offset, String comment) {
+        Program program = getCurrentProgram();
+        if (program == null) return "No program loaded";
+        if (structureName == null || fieldName == null || dataType == null) {
+            return "Structure name, field name, and data type are required";
+        }
+        try {
+            DataTypeManager dtm = program.getDataTypeManager();
+            DataType dt = dtm.getDataType(structureName);
+            if (dt == null || !(dt instanceof Composite)) {
+                return "Structure not found: " + structureName;
+            }
+            
+            Composite composite = (Composite) dt;
+            ghidra.util.data.DataTypeParser parser = new ghidra.util.data.DataTypeParser(dtm, dtm, null, ghidra.util.data.DataTypeParser.AllowedDataTypes.ALL);
+            DataType fieldType = parser.parse(dataType);
+            if (fieldType == null) {
+                return "Invalid data type: " + dataType;
+            }
+            
+            int txId = program.startTransaction("Add Structure Field");
+            try {
+                if (composite instanceof Structure) {
+                    Structure struct = (Structure) composite;
+                    if (offset != null) {
+                        struct.insertAtOffset(offset, fieldType, fieldType.getLength(), fieldName, comment);
+                    } else {
+                        struct.add(fieldType, fieldName, comment);
+                    }
+                } else if (composite instanceof Union) {
+                    Union union = (Union) composite;
+                    union.add(fieldType, fieldName, comment);
+                }
+                
+                program.endTransaction(txId, true);
+                return "{\"success\":true,\"message\":\"Field added successfully\"}";
+            } catch (Exception e) {
+                program.endTransaction(txId, false);
+                return "Error: " + e.getMessage();
+            }
+        } catch (Exception e) {
+            return "Error: " + e.getMessage();
+        }
+    }
+
+    /**
+     * Modify structure field
+     */
+    private String modifyStructureField(String structureName, String fieldName, Integer offset, 
+            String newDataType, String newFieldName, String newComment, Integer newLength) {
+        Program program = getCurrentProgram();
+        if (program == null) return "No program loaded";
+        if (structureName == null) return "Structure name is required";
+        if (fieldName == null && offset == null) return "Either field name or offset is required";
+        try {
+            DataTypeManager dtm = program.getDataTypeManager();
+            DataType dt = dtm.getDataType(structureName);
+            if (dt == null || !(dt instanceof Structure)) {
+                return "Structure not found: " + structureName;
+            }
+            
+            Structure struct = (Structure) dt;
+            DataTypeComponent targetComponent = null;
+            int targetOrdinal = -1;
+            
+            if (offset != null) {
+                targetComponent = struct.getComponentAt(offset);
+                if (targetComponent == null) {
+                    return "No field found at offset " + offset;
+                }
+                targetOrdinal = targetComponent.getOrdinal();
+            } else {
+                for (int i = 0; i < struct.getNumComponents(); i++) {
+                    DataTypeComponent comp = struct.getComponent(i);
+                    if (fieldName.equals(comp.getFieldName())) {
+                        targetComponent = comp;
+                        targetOrdinal = i;
+                        break;
+                    }
+                }
+                if (targetComponent == null) {
+                    return "Field not found: " + fieldName;
+                }
+            }
+            
+            DataType replacementDataType = targetComponent.getDataType();
+            String replacementFieldName = targetComponent.getFieldName();
+            String replacementComment = targetComponent.getComment();
+            int replacementLength = targetComponent.getLength();
+            
+            if (newDataType != null) {
+                ghidra.util.data.DataTypeParser parser = new ghidra.util.data.DataTypeParser(dtm, dtm, null, ghidra.util.data.DataTypeParser.AllowedDataTypes.ALL);
+                replacementDataType = parser.parse(newDataType);
+                if (newLength == null) {
+                    replacementLength = replacementDataType.getLength();
+                }
+            }
+            if (newFieldName != null) replacementFieldName = newFieldName;
+            if (newComment != null) replacementComment = newComment;
+            if (newLength != null) replacementLength = newLength;
+            
+            int txId = program.startTransaction("Modify Structure Field");
+            try {
+                struct.replace(targetOrdinal, replacementDataType, replacementLength, replacementFieldName, replacementComment);
+                program.endTransaction(txId, true);
+                return "{\"success\":true,\"message\":\"Field modified successfully\"}";
+            } catch (Exception e) {
+                program.endTransaction(txId, false);
+                return "Error: " + e.getMessage();
+            }
+        } catch (Exception e) {
+            return "Error: " + e.getMessage();
+        }
+    }
+
+    /**
+     * Modify structure from C
+     */
+    private String modifyStructureFromC(String cDefinition) {
+        Program program = getCurrentProgram();
+        if (program == null) return "No program loaded";
+        if (cDefinition == null || cDefinition.isEmpty()) return "C definition is required";
+        try {
+            DataTypeManager dtm = program.getDataTypeManager();
+            CParser parser = new CParser(dtm);
+            DataType parsedDt = parser.parse(cDefinition);
+            
+            if (parsedDt == null || !(parsedDt instanceof Structure)) {
+                return "Failed to parse structure definition or not a structure";
+            }
+            
+            Structure parsedStruct = (Structure) parsedDt;
+            String structureName = parsedStruct.getName();
+            DataType existingDt = dtm.getDataType(structureName);
+            
+            if (existingDt == null || !(existingDt instanceof Structure)) {
+                return "Structure not found: " + structureName;
+            }
+            
+            Structure existingStruct = (Structure) existingDt;
+            
+            int txId = program.startTransaction("Modify Structure from C");
+            try {
+                while (existingStruct.getNumComponents() > 0) {
+                    existingStruct.delete(0);
+                }
+                
+                for (int i = 0; i < parsedStruct.getNumComponents(); i++) {
+                    DataTypeComponent comp = parsedStruct.getComponent(i);
+                    DataType fieldType = dtm.resolve(comp.getDataType(), DataTypeConflictHandler.DEFAULT_HANDLER);
+                    existingStruct.add(fieldType, comp.getFieldName(), comp.getComment());
+                }
+                
+                if (parsedStruct.getDescription() != null) {
+                    existingStruct.setDescription(parsedStruct.getDescription());
+                }
+                existingStruct.setPackingEnabled(parsedStruct.isPackingEnabled());
+                
+                program.endTransaction(txId, true);
+                return "{\"success\":true,\"message\":\"Structure modified successfully\"}";
+            } catch (Exception e) {
+                program.endTransaction(txId, false);
+                return "Error: " + e.getMessage();
+            }
+        } catch (Exception e) {
+            return "Error: " + e.getMessage();
+        }
+    }
+
+    /**
+     * Get structure info
+     */
+    private String getStructureInfo(String structureName) {
+        Program program = getCurrentProgram();
+        if (program == null) return "No program loaded";
+        if (structureName == null || structureName.isEmpty()) return "Structure name is required";
+        try {
+            DataTypeManager dtm = program.getDataTypeManager();
+            DataType dt = dtm.getDataType(structureName);
+            if (dt == null || !(dt instanceof Composite)) {
+                return "Structure not found: " + structureName;
+            }
+            
+            Composite composite = (Composite) dt;
+            StringBuilder result = new StringBuilder("{\"name\":\"").append(composite.getName()).append("\",");
+            result.append("\"size\":").append(composite.getLength()).append(",");
+            result.append("\"isUnion\":").append(dt instanceof Union).append(",");
+            result.append("\"numComponents\":").append(composite.getNumComponents()).append(",");
+            result.append("\"fields\":[");
+            
+            for (int i = 0; i < composite.getNumComponents(); i++) {
+                if (i > 0) result.append(",");
+                DataTypeComponent comp = composite.getComponent(i);
+                result.append("{\"ordinal\":").append(comp.getOrdinal()).append(",");
+                result.append("\"offset\":").append(comp.getOffset()).append(",");
+                result.append("\"length\":").append(comp.getLength()).append(",");
+                result.append("\"fieldName\":\"").append(comp.getFieldName() != null ? comp.getFieldName() : "").append("\",");
+                result.append("\"dataType\":\"").append(comp.getDataType().getDisplayName()).append("\"}");
+            }
+            
+            result.append("]}");
+            return result.toString();
+        } catch (Exception e) {
+            return "Error: " + e.getMessage();
+        }
+    }
+
+    /**
+     * List structures
+     */
+    private String listStructures(String category, String nameFilter, boolean includeBuiltIn) {
+        Program program = getCurrentProgram();
+        if (program == null) return "No program loaded";
+        try {
+            DataTypeManager dtm = program.getDataTypeManager();
+            List<Map<String, Object>> structures = new ArrayList<>();
+            Iterator<DataType> iter = dtm.getAllDataTypes();
+            
+            while (iter.hasNext()) {
+                DataType dt = iter.next();
+                if (!(dt instanceof Composite)) continue;
+                
+                if (!includeBuiltIn && dt.getSourceArchive().getName().equals("BuiltInTypes")) {
+                    continue;
+                }
+                
+                if (category != null && !dt.getCategoryPath().getPath().startsWith(category)) {
+                    continue;
+                }
+                
+                if (nameFilter != null && !dt.getName().toLowerCase().contains(nameFilter.toLowerCase())) {
+                    continue;
+                }
+                
+                Map<String, Object> structInfo = new HashMap<>();
+                structInfo.put("name", dt.getName());
+                structInfo.put("size", dt.getLength());
+                structInfo.put("isUnion", dt instanceof Union);
+                structInfo.put("numComponents", ((Composite) dt).getNumComponents());
+                structures.add(structInfo);
+            }
+            
+            StringBuilder result = new StringBuilder("{\"count\":").append(structures.size()).append(",\"structures\":[");
+            for (int i = 0; i < structures.size(); i++) {
+                if (i > 0) result.append(",");
+                Map<String, Object> struct = structures.get(i);
+                result.append("{\"name\":\"").append(struct.get("name")).append("\",");
+                result.append("\"size\":").append(struct.get("size")).append(",");
+                result.append("\"isUnion\":").append(struct.get("isUnion")).append(",");
+                result.append("\"numComponents\":").append(struct.get("numComponents")).append("}");
+            }
+            result.append("]}");
+            return result.toString();
+        } catch (Exception e) {
+            return "Error: " + e.getMessage();
+        }
+    }
+
+    /**
+     * Apply structure
+     */
+    private String applyStructure(String structureName, String addressOrSymbol, boolean clearExisting) {
+        Program program = getCurrentProgram();
+        if (program == null) return "No program loaded";
+        if (structureName == null || addressOrSymbol == null) {
+            return "Structure name and address are required";
+        }
+        try {
+            Address address;
+            try {
+                address = program.getAddressFactory().getAddress(addressOrSymbol);
+            } catch (Exception e) {
+                Symbol symbol = program.getSymbolTable().getSymbol(addressOrSymbol);
+                if (symbol == null) return "Address or symbol not found: " + addressOrSymbol;
+                address = symbol.getAddress();
+            }
+            
+            DataTypeManager dtm = program.getDataTypeManager();
+            DataType dt = dtm.getDataType(structureName);
+            if (dt == null || !(dt instanceof Composite)) {
+                return "Structure not found: " + structureName;
+            }
+            
+            if (!program.getMemory().contains(address)) {
+                return "Address is not in valid memory: " + address.toString();
+            }
+            
+            int txId = program.startTransaction("Apply Structure");
+            try {
+                Listing listing = program.getListing();
+                if (clearExisting) {
+                    Data existingData = listing.getDataAt(address);
+                    if (existingData != null) {
+                        listing.clearCodeUnits(address, address.add(existingData.getLength() - 1), false);
+                    }
+                }
+                
+                listing.createData(address, dt);
+                program.endTransaction(txId, true);
+                return "{\"success\":true,\"message\":\"Structure applied successfully\"}";
+            } catch (Exception e) {
+                program.endTransaction(txId, false);
+                return "Error: " + e.getMessage();
+            }
+        } catch (Exception e) {
+            return "Error: " + e.getMessage();
+        }
+    }
+
+    /**
+     * Delete structure
+     */
+    private String deleteStructure(String structureName, boolean force) {
+        Program program = getCurrentProgram();
+        if (program == null) return "No program loaded";
+        if (structureName == null || structureName.isEmpty()) return "Structure name is required";
+        try {
+            DataTypeManager dtm = program.getDataTypeManager();
+            DataType dt = dtm.getDataType(structureName);
+            if (dt == null) {
+                return "Structure not found: " + structureName;
+            }
+            
+            // Check for references
+            List<String> references = new ArrayList<>();
+            FunctionIterator functions = program.getFunctionManager().getFunctions(true);
+            while (functions.hasNext()) {
+                Function func = functions.next();
+                if (func.getReturnType().isEquivalent(dt)) {
+                    references.add(func.getName() + " (return type)");
+                }
+                for (Parameter param : func.getParameters()) {
+                    if (param.getDataType().isEquivalent(dt)) {
+                        references.add(func.getName() + " (parameter: " + param.getName() + ")");
+                    }
+                }
+            }
+            
+            if (!references.isEmpty() && !force) {
+                StringBuilder result = new StringBuilder("{\"canDelete\":false,\"references\":[");
+                for (int i = 0; i < references.size(); i++) {
+                    if (i > 0) result.append(",");
+                    result.append("\"").append(references.get(i)).append("\"");
+                }
+                result.append("],\"warning\":\"Structure is referenced. Use force=true to delete anyway.\"}");
+                return result.toString();
+            }
+            
+            int txId = program.startTransaction("Delete Structure");
+            try {
+                boolean removed = dtm.remove(dt);
+                program.endTransaction(txId, true);
+                if (removed) {
+                    return "{\"success\":true,\"message\":\"Structure deleted successfully\"}";
+                } else {
+                    return "Error: Failed to delete structure";
+                }
+            } catch (Exception e) {
+                program.endTransaction(txId, false);
+                return "Error: " + e.getMessage();
+            }
+        } catch (Exception e) {
+            return "Error: " + e.getMessage();
+        }
+    }
+
+    /**
+     * Parse C header
+     */
+    private String parseCHeader(String headerContent, String category) {
+        Program program = getCurrentProgram();
+        if (program == null) return "No program loaded";
+        if (headerContent == null || headerContent.isEmpty()) return "Header content is required";
+        try {
+            DataTypeManager dtm = program.getDataTypeManager();
+            CParser parser = new CParser(dtm);
+            CategoryPath catPath = new CategoryPath(category);
+            dtm.createCategory(catPath);
+            
+            int txId = program.startTransaction("Parse C Header");
+            List<String> createdTypes = new ArrayList<>();
+            try {
+                DataType dt = parser.parse(headerContent);
+                if (dt != null) {
+                    DataType resolved = dtm.resolve(dt, DataTypeConflictHandler.REPLACE_HANDLER);
+                    if (!resolved.getCategoryPath().equals(catPath)) {
+                        resolved.setName(resolved.getName());
+                        dtm.getCategory(catPath).moveDataType(resolved, DataTypeConflictHandler.REPLACE_HANDLER);
+                    }
+                    createdTypes.add(resolved.getName());
+                }
+                
+                program.endTransaction(txId, true);
+                StringBuilder result = new StringBuilder("{\"success\":true,\"createdCount\":").append(createdTypes.size()).append(",\"createdTypes\":[");
+                for (int i = 0; i < createdTypes.size(); i++) {
+                    if (i > 0) result.append(",");
+                    result.append("\"").append(createdTypes.get(i)).append("\"");
+                }
+                result.append("]}");
+                return result.toString();
+            } catch (Exception e) {
+                program.endTransaction(txId, false);
+                return "Error: " + e.getMessage();
+            }
+        } catch (Exception e) {
+            return "Error: " + e.getMessage();
+        }
     }
 
     @Override
