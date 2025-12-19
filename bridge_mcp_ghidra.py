@@ -484,6 +484,68 @@ def list_function_calls(function_address: str) -> str:
         "functionAddress": function_address
     }))
 
+@mcp.tool()
+def trace_data_flow_backward(address: str) -> str:
+    """
+    Trace data flow backward from an address to find origins.
+    
+    Args:
+        address: Address within a function to trace backward from
+        
+    Returns:
+        Data flow information showing where values come from
+    """
+    return "\n".join(safe_get("trace_data_flow_backward", {
+        "address": address
+    }))
+
+@mcp.tool()
+def trace_data_flow_forward(address: str) -> str:
+    """
+    Trace data flow forward from an address to find uses.
+    
+    Args:
+        address: Address within a function to trace forward from
+        
+    Returns:
+        Data flow information showing where values are used
+    """
+    return "\n".join(safe_get("trace_data_flow_forward", {
+        "address": address
+    }))
+
+@mcp.tool()
+def analyze_vtable(vtable_address: str, max_entries: int = 200) -> str:
+    """
+    Analyze a virtual function table (vtable) at a given address.
+    
+    Args:
+        vtable_address: Address of the vtable to analyze
+        max_entries: Maximum number of vtable entries to read (default: 200)
+        
+    Returns:
+        Vtable structure with function pointers and slot information
+    """
+    return "\n".join(safe_get("analyze_vtable", {
+        "vtableAddress": vtable_address,
+        "maxEntries": max_entries
+    }))
+
+@mcp.tool()
+def find_vtable_callers(function_address: str) -> str:
+    """
+    Find all indirect calls that could invoke a function via its vtable slot.
+    
+    Args:
+        function_address: Address or name of the virtual function
+        
+    Returns:
+        List of potential caller sites for the virtual method
+    """
+    return "\n".join(safe_get("find_vtable_callers", {
+        "functionAddress": function_address
+    }))
+
 def main():
     parser = argparse.ArgumentParser(description="MCP server for Ghidra")
     parser.add_argument("--ghidra-server", type=str, default=DEFAULT_GHIDRA_SERVER,
