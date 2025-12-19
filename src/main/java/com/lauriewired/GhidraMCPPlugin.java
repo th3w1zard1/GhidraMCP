@@ -341,6 +341,92 @@ public class GhidraMCPPlugin extends Plugin {
             sendResponse(exchange, listDefinedStrings(offset, limit, filter));
         });
 
+        // Bookmarks endpoints
+        server.createContext("/set_bookmark", exchange -> {
+            Map<String, String> params = parsePostParams(exchange);
+            String address = params.get("address");
+            String type = params.get("type");
+            String category = params.get("category");
+            String comment = params.get("comment");
+            boolean success = setBookmark(address, type, category, comment);
+            sendResponse(exchange, success ? "Bookmark set successfully" : "Failed to set bookmark");
+        });
+
+        server.createContext("/get_bookmarks", exchange -> {
+            Map<String, String> qparams = parseQueryParams(exchange);
+            String address = qparams.get("address");
+            String type = qparams.get("type");
+            sendResponse(exchange, getBookmarks(address, type));
+        });
+
+        server.createContext("/search_bookmarks", exchange -> {
+            Map<String, String> qparams = parseQueryParams(exchange);
+            String searchText = qparams.get("searchText");
+            int maxResults = parseIntOrDefault(qparams.get("maxResults"), 100);
+            sendResponse(exchange, searchBookmarks(searchText, maxResults));
+        });
+
+        // Call graph endpoints
+        server.createContext("/get_call_graph", exchange -> {
+            Map<String, String> qparams = parseQueryParams(exchange);
+            String functionAddress = qparams.get("functionAddress");
+            int depth = parseIntOrDefault(qparams.get("depth"), 1);
+            sendResponse(exchange, getCallGraph(functionAddress, depth));
+        });
+
+        server.createContext("/get_callers", exchange -> {
+            Map<String, String> qparams = parseQueryParams(exchange);
+            String functionAddress = qparams.get("functionAddress");
+            sendResponse(exchange, getFunctionCallers(functionAddress));
+        });
+
+        server.createContext("/get_callees", exchange -> {
+            Map<String, String> qparams = parseQueryParams(exchange);
+            String functionAddress = qparams.get("functionAddress");
+            sendResponse(exchange, getFunctionCallees(functionAddress));
+        });
+
+        // Constants search endpoints
+        server.createContext("/find_constant", exchange -> {
+            Map<String, String> qparams = parseQueryParams(exchange);
+            String value = qparams.get("value");
+            int maxResults = parseIntOrDefault(qparams.get("maxResults"), 500);
+            sendResponse(exchange, findConstantUses(value, maxResults));
+        });
+
+        server.createContext("/find_constants_in_range", exchange -> {
+            Map<String, String> qparams = parseQueryParams(exchange);
+            String minValue = qparams.get("minValue");
+            String maxValue = qparams.get("maxValue");
+            int maxResults = parseIntOrDefault(qparams.get("maxResults"), 500);
+            sendResponse(exchange, findConstantsInRange(minValue, maxValue, maxResults));
+        });
+
+        // Memory blocks endpoint
+        server.createContext("/memory_blocks", exchange -> {
+            sendResponse(exchange, getMemoryBlocks());
+        });
+
+        server.createContext("/read_memory", exchange -> {
+            Map<String, String> qparams = parseQueryParams(exchange);
+            String address = qparams.get("address");
+            int length = parseIntOrDefault(qparams.get("length"), 16);
+            sendResponse(exchange, readMemory(address, length));
+        });
+
+        // Enhanced function endpoints
+        server.createContext("/get_function_info", exchange -> {
+            Map<String, String> qparams = parseQueryParams(exchange);
+            String address = qparams.get("address");
+            sendResponse(exchange, getFunctionInfo(address));
+        });
+
+        server.createContext("/list_function_calls", exchange -> {
+            Map<String, String> qparams = parseQueryParams(exchange);
+            String functionAddress = qparams.get("functionAddress");
+            sendResponse(exchange, listFunctionCalls(functionAddress));
+        });
+
         server.setExecutor(null);
         new Thread(() -> {
             try {
@@ -1635,6 +1721,506 @@ public class GhidraMCPPlugin extends Plugin {
         exchange.sendResponseHeaders(200, bytes.length);
         try (OutputStream os = exchange.getResponseBody()) {
             os.write(bytes);
+        }
+    }
+
+    // ----------------------------------------------------------------------------------
+    // Bookmarks methods
+    // ----------------------------------------------------------------------------------
+
+    /**
+     * Set a bookmark at a specific address
+     */
+    private boolean setBookmark(String addressStr, String type, String category, String comment) {
+        Program program = getCurrentProgram();
+        if (program == null) return false;
+        if (addressStr == null || type == null || comment == null) return false;
+
+        AtomicBoolean success = new AtomicBoolean(false);
+        try {
+            SwingUtilities.invokeAndWait(() -> {
+                int tx = program.startTransaction("Set Bookmark");
+                try {
+                    Address addr = program.getAddressFactory().getAddress(addressStr);
+                    ghidra.program.model.listing.BookmarkManager bookmarkMgr = program.getBookmarkManager();
+                    
+                    String cat = (category != null && !category.isEmpty()) ? category : "";
+                    bookmarkMgr.setBookmark(addr, type, cat, comment);
+                    success.set(true);
+                } catch (Exception e) {
+                    Msg.error(this, "Error setting bookmark", e);
+                } finally {
+                    program.endTransaction(tx, success.get());
+                }
+            });
+        } catch (InterruptedException | InvocationTargetException e) {
+            Msg.error(this, "Failed to execute set bookmark on Swing thread", e);
+        }
+        return success.get();
+    }
+
+    /**
+     * Get bookmarks at an address or of a specific type
+     */
+    private String getBookmarks(String addressStr, String type) {
+        Program program = getCurrentProgram();
+        if (program == null) return "No program loaded";
+
+        ghidra.program.model.listing.BookmarkManager bookmarkMgr = program.getBookmarkManager();
+        List<String> results = new ArrayList<>();
+
+        if (addressStr != null && !addressStr.isEmpty()) {
+            try {
+                Address addr = program.getAddressFactory().getAddress(addressStr);
+                ghidra.program.model.listing.Bookmark[] bookmarks = bookmarkMgr.getBookmarks(addr);
+                for (ghidra.program.model.listing.Bookmark bookmark : bookmarks) {
+                    if (type == null || type.isEmpty() || bookmark.getTypeString().equals(type)) {
+                        results.add(formatBookmark(bookmark));
+                    }
+                }
+            } catch (Exception e) {
+                return "Error: " + e.getMessage();
+            }
+        } else if (type != null && !type.isEmpty()) {
+            Iterator<ghidra.program.model.listing.Bookmark> iter = bookmarkMgr.getBookmarksIterator(type);
+            while (iter.hasNext()) {
+                results.add(formatBookmark(iter.next()));
+            }
+        } else {
+            Iterator<ghidra.program.listing.Bookmark> iter = bookmarkMgr.getBookmarksIterator();
+            while (iter.hasNext()) {
+                results.add(formatBookmark(iter.next()));
+            }
+        }
+
+        return results.isEmpty() ? "No bookmarks found" : String.join("\n", results);
+    }
+
+    /**
+     * Search bookmarks by text
+     */
+    private String searchBookmarks(String searchText, int maxResults) {
+        Program program = getCurrentProgram();
+        if (program == null) return "No program loaded";
+        if (searchText == null || searchText.isEmpty()) return "Search text is required";
+
+        ghidra.program.model.listing.BookmarkManager bookmarkMgr = program.getBookmarkManager();
+        List<String> results = new ArrayList<>();
+        int count = 0;
+
+        Iterator<ghidra.program.model.listing.Bookmark> iter = bookmarkMgr.getBookmarksIterator();
+        while (iter.hasNext() && count < maxResults) {
+            ghidra.program.model.listing.Bookmark bookmark = iter.next();
+            String comment = bookmark.getComment();
+            if (comment != null && comment.toLowerCase().contains(searchText.toLowerCase())) {
+                results.add(formatBookmark(bookmark));
+                count++;
+            }
+        }
+
+        return results.isEmpty() ? "No matching bookmarks found" : String.join("\n", results);
+    }
+
+    /**
+     * Format a bookmark for display
+     */
+    private String formatBookmark(ghidra.program.model.listing.Bookmark bookmark) {
+        return String.format("%s [%s/%s]: %s",
+            bookmark.getAddress(),
+            bookmark.getTypeString(),
+            bookmark.getCategory() != null ? bookmark.getCategory() : "",
+            bookmark.getComment());
+    }
+
+    // ----------------------------------------------------------------------------------
+    // Call graph methods
+    // ----------------------------------------------------------------------------------
+
+    /**
+     * Get call graph around a function
+     */
+    private String getCallGraph(String functionAddrStr, int depth) {
+        Program program = getCurrentProgram();
+        if (program == null) return "No program loaded";
+        if (functionAddrStr == null) return "Function address is required";
+
+        try {
+            Address addr = program.getAddressFactory().getAddress(functionAddrStr);
+            Function function = getFunctionForAddress(program, addr);
+            if (function == null) return "No function at address: " + functionAddrStr;
+
+            StringBuilder result = new StringBuilder();
+            result.append("Function: ").append(function.getName()).append(" @ ").append(function.getEntryPoint()).append("\n\n");
+
+            // Get callers
+            result.append("Callers:\n");
+            Set<Function> callers = function.getCallingFunctions(new ConsoleTaskMonitor());
+            if (callers.isEmpty()) {
+                result.append("  (none)\n");
+            } else {
+                for (Function caller : callers) {
+                    result.append("  ").append(caller.getName()).append(" @ ").append(caller.getEntryPoint()).append("\n");
+                }
+            }
+
+            // Get callees
+            result.append("\nCallees:\n");
+            Set<Function> callees = function.getCalledFunctions(new ConsoleTaskMonitor());
+            if (callees.isEmpty()) {
+                result.append("  (none)\n");
+            } else {
+                for (Function callee : callees) {
+                    result.append("  ").append(callee.getName()).append(" @ ").append(callee.getEntryPoint()).append("\n");
+                }
+            }
+
+            return result.toString();
+        } catch (Exception e) {
+            return "Error: " + e.getMessage();
+        }
+    }
+
+    /**
+     * Get functions that call a specific function
+     */
+    private String getFunctionCallers(String functionAddrStr) {
+        Program program = getCurrentProgram();
+        if (program == null) return "No program loaded";
+        if (functionAddrStr == null) return "Function address is required";
+
+        try {
+            Address addr = program.getAddressFactory().getAddress(functionAddrStr);
+            Function function = getFunctionForAddress(program, addr);
+            if (function == null) return "No function at address: " + functionAddrStr;
+
+            Set<Function> callers = function.getCallingFunctions(new ConsoleTaskMonitor());
+            if (callers.isEmpty()) {
+                return "No callers found for function: " + function.getName();
+            }
+
+            StringBuilder result = new StringBuilder();
+            result.append("Callers of ").append(function.getName()).append(":\n");
+            for (Function caller : callers) {
+                result.append(String.format("%s @ %s\n", caller.getName(), caller.getEntryPoint()));
+            }
+            return result.toString();
+        } catch (Exception e) {
+            return "Error: " + e.getMessage();
+        }
+    }
+
+    /**
+     * Get functions called by a specific function
+     */
+    private String getFunctionCallees(String functionAddrStr) {
+        Program program = getCurrentProgram();
+        if (program == null) return "No program loaded";
+        if (functionAddrStr == null) return "Function address is required";
+
+        try {
+            Address addr = program.getAddressFactory().getAddress(functionAddrStr);
+            Function function = getFunctionForAddress(program, addr);
+            if (function == null) return "No function at address: " + functionAddrStr;
+
+            Set<Function> callees = function.getCalledFunctions(new ConsoleTaskMonitor());
+            if (callees.isEmpty()) {
+                return "No callees found for function: " + function.getName();
+            }
+
+            StringBuilder result = new StringBuilder();
+            result.append("Functions called by ").append(function.getName()).append(":\n");
+            for (Function callee : callees) {
+                result.append(String.format("%s @ %s\n", callee.getName(), callee.getEntryPoint()));
+            }
+            return result.toString();
+        } catch (Exception e) {
+            return "Error: " + e.getMessage();
+        }
+    }
+
+    // ----------------------------------------------------------------------------------
+    // Constants search methods
+    // ----------------------------------------------------------------------------------
+
+    /**
+     * Find uses of a specific constant value
+     */
+    private String findConstantUses(String valueStr, int maxResults) {
+        Program program = getCurrentProgram();
+        if (program == null) return "No program loaded";
+        if (valueStr == null || valueStr.isEmpty()) return "Value is required";
+
+        try {
+            long targetValue = parseConstantValue(valueStr);
+            List<String> results = new ArrayList<>();
+            Listing listing = program.getListing();
+            InstructionIterator instructions = listing.getInstructions(true);
+
+            int count = 0;
+            while (instructions.hasNext() && count < maxResults) {
+                Instruction instr = instructions.next();
+                for (int i = 0; i < instr.getNumOperands(); i++) {
+                    ghidra.program.model.scalar.Scalar scalar = instr.getScalar(i);
+                    if (scalar != null) {
+                        long unsignedValue = scalar.getUnsignedValue();
+                        long signedValue = scalar.getSignedValue();
+                        
+                        if (unsignedValue == targetValue || signedValue == targetValue) {
+                            Function func = program.getFunctionManager().getFunctionContaining(instr.getAddress());
+                            String funcName = (func != null) ? func.getName() : "(no function)";
+                            results.add(String.format("%s: %s [in %s]",
+                                instr.getAddress(), instr.toString(), funcName));
+                            count++;
+                            break; // Only count once per instruction
+                        }
+                    }
+                }
+            }
+
+            if (results.isEmpty()) {
+                return "No uses found for constant: " + valueStr;
+            }
+
+            return String.format("Found %d use(s) of %s:\n%s",
+                results.size(), valueStr, String.join("\n", results));
+
+        } catch (NumberFormatException e) {
+            return "Invalid constant value: " + valueStr;
+        } catch (Exception e) {
+            return "Error: " + e.getMessage();
+        }
+    }
+
+    /**
+     * Find constants within a specific range
+     */
+    private String findConstantsInRange(String minValueStr, String maxValueStr, int maxResults) {
+        Program program = getCurrentProgram();
+        if (program == null) return "No program loaded";
+        if (minValueStr == null || maxValueStr == null) return "Min and max values are required";
+
+        try {
+            long minValue = parseConstantValue(minValueStr);
+            long maxValue = parseConstantValue(maxValueStr);
+            
+            Map<Long, Integer> valueCounts = new HashMap<>();
+            List<String> results = new ArrayList<>();
+            Listing listing = program.getListing();
+            InstructionIterator instructions = listing.getInstructions(true);
+
+            int count = 0;
+            while (instructions.hasNext() && count < maxResults * 2) {
+                Instruction instr = instructions.next();
+                for (int i = 0; i < instr.getNumOperands(); i++) {
+                    ghidra.program.model.scalar.Scalar scalar = instr.getScalar(i);
+                    if (scalar != null) {
+                        long unsignedValue = scalar.getUnsignedValue();
+                        
+                        if (Long.compareUnsigned(unsignedValue, minValue) >= 0 &&
+                            Long.compareUnsigned(unsignedValue, maxValue) <= 0) {
+                            valueCounts.put(unsignedValue, valueCounts.getOrDefault(unsignedValue, 0) + 1);
+                            count++;
+                        }
+                    }
+                }
+            }
+
+            if (valueCounts.isEmpty()) {
+                return String.format("No constants found in range [%s, %s]", minValueStr, maxValueStr);
+            }
+
+            StringBuilder result = new StringBuilder();
+            result.append(String.format("Found %d unique constant(s) in range [%s, %s]:\n",
+                valueCounts.size(), minValueStr, maxValueStr));
+            
+            valueCounts.entrySet().stream()
+                .sorted((a, b) -> Integer.compare(b.getValue(), a.getValue()))
+                .limit(maxResults)
+                .forEach(entry -> result.append(String.format("0x%x (%d): %d occurrences\n",
+                    entry.getKey(), entry.getKey(), entry.getValue())));
+
+            return result.toString();
+
+        } catch (NumberFormatException e) {
+            return "Invalid constant value";
+        } catch (Exception e) {
+            return "Error: " + e.getMessage();
+        }
+    }
+
+    /**
+     * Parse a constant value from string (supports hex with 0x, decimal, negative)
+     */
+    private long parseConstantValue(String valueStr) throws NumberFormatException {
+        valueStr = valueStr.trim();
+        if (valueStr.toLowerCase().startsWith("0x")) {
+            return Long.parseUnsignedLong(valueStr.substring(2), 16);
+        }
+        if (valueStr.startsWith("-")) {
+            return Long.parseLong(valueStr);
+        }
+        return Long.parseUnsignedLong(valueStr);
+    }
+
+    // ----------------------------------------------------------------------------------
+    // Memory methods
+    // ----------------------------------------------------------------------------------
+
+    /**
+     * Get memory blocks
+     */
+    private String getMemoryBlocks() {
+        Program program = getCurrentProgram();
+        if (program == null) return "No program loaded";
+
+        StringBuilder result = new StringBuilder();
+        result.append("Memory Blocks:\n");
+        
+        for (MemoryBlock block : program.getMemory().getBlocks()) {
+            result.append(String.format("%s: %s - %s (size: %d, R:%s W:%s X:%s)\n",
+                block.getName(),
+                block.getStart(),
+                block.getEnd(),
+                block.getSize(),
+                block.isRead() ? "Y" : "N",
+                block.isWrite() ? "Y" : "N",
+                block.isExecute() ? "Y" : "N"));
+        }
+
+        return result.toString();
+    }
+
+    /**
+     * Read memory at address
+     */
+    private String readMemory(String addressStr, int length) {
+        Program program = getCurrentProgram();
+        if (program == null) return "No program loaded";
+        if (addressStr == null) return "Address is required";
+
+        try {
+            Address addr = program.getAddressFactory().getAddress(addressStr);
+            byte[] bytes = new byte[length];
+            int bytesRead = program.getMemory().getBytes(addr, bytes);
+            
+            StringBuilder result = new StringBuilder();
+            result.append(String.format("Memory at %s (%d bytes):\n", addr, bytesRead));
+            
+            // Format as hex dump
+            for (int i = 0; i < bytesRead; i += 16) {
+                result.append(String.format("%s: ", addr.add(i)));
+                
+                // Hex bytes
+                for (int j = 0; j < 16 && i + j < bytesRead; j++) {
+                    result.append(String.format("%02x ", bytes[i + j] & 0xFF));
+                }
+                
+                // ASCII representation
+                result.append(" |");
+                for (int j = 0; j < 16 && i + j < bytesRead; j++) {
+                    byte b = bytes[i + j];
+                    result.append((b >= 32 && b < 127) ? (char)b : '.');
+                }
+                result.append("|\n");
+            }
+            
+            return result.toString();
+        } catch (Exception e) {
+            return "Error reading memory: " + e.getMessage();
+        }
+    }
+
+    // ----------------------------------------------------------------------------------
+    // Enhanced function methods
+    // ----------------------------------------------------------------------------------
+
+    /**
+     * Get detailed function information
+     */
+    private String getFunctionInfo(String addressStr) {
+        Program program = getCurrentProgram();
+        if (program == null) return "No program loaded";
+        if (addressStr == null) return "Address is required";
+
+        try {
+            Address addr = program.getAddressFactory().getAddress(addressStr);
+            Function func = getFunctionForAddress(program, addr);
+            if (func == null) return "No function at address: " + addressStr;
+
+            StringBuilder result = new StringBuilder();
+            result.append("Function: ").append(func.getName()).append("\n");
+            result.append("Address: ").append(func.getEntryPoint()).append("\n");
+            result.append("Signature: ").append(func.getSignature()).append("\n");
+            result.append("Body: ").append(func.getBody().getMinAddress()).append(" - ").append(func.getBody().getMaxAddress()).append("\n");
+            
+            // Parameters
+            result.append("\nParameters:\n");
+            Parameter[] params = func.getParameters();
+            if (params.length == 0) {
+                result.append("  (none)\n");
+            } else {
+                for (Parameter param : params) {
+                    result.append("  ").append(param.getDataType().getName()).append(" ").append(param.getName()).append("\n");
+                }
+            }
+            
+            // Local variables
+            result.append("\nLocal Variables:\n");
+            Variable[] locals = func.getLocalVariables();
+            if (locals.length == 0) {
+                result.append("  (none)\n");
+            } else {
+                for (Variable local : locals) {
+                    result.append("  ").append(local.getDataType().getName()).append(" ").append(local.getName()).append("\n");
+                }
+            }
+
+            return result.toString();
+        } catch (Exception e) {
+            return "Error: " + e.getMessage();
+        }
+    }
+
+    /**
+     * List function calls within a function
+     */
+    private String listFunctionCalls(String functionAddrStr) {
+        Program program = getCurrentProgram();
+        if (program == null) return "No program loaded";
+        if (functionAddrStr == null) return "Function address is required";
+
+        try {
+            Address addr = program.getAddressFactory().getAddress(functionAddrStr);
+            Function function = getFunctionForAddress(program, addr);
+            if (function == null) return "No function at address: " + functionAddrStr;
+
+            List<String> calls = new ArrayList<>();
+            Listing listing = program.getListing();
+            InstructionIterator instructions = listing.getInstructions(function.getBody(), true);
+
+            while (instructions.hasNext()) {
+                Instruction instr = instructions.next();
+                FlowType flowType = instr.getFlowType();
+                
+                if (flowType.isCall()) {
+                    Address[] flows = instr.getFlows();
+                    for (Address flow : flows) {
+                        Function calledFunc = program.getFunctionManager().getFunctionAt(flow);
+                        String funcName = (calledFunc != null) ? calledFunc.getName() : flow.toString();
+                        calls.add(String.format("%s: CALL %s", instr.getAddress(), funcName));
+                    }
+                }
+            }
+
+            if (calls.isEmpty()) {
+                return "No function calls found in: " + function.getName();
+            }
+
+            return String.format("Function calls in %s:\n%s",
+                function.getName(), String.join("\n", calls));
+
+        } catch (Exception e) {
+            return "Error: " + e.getMessage();
         }
     }
 

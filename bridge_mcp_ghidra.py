@@ -287,6 +287,203 @@ def list_strings(offset: int = 0, limit: int = 2000, filter: str = None) -> list
         params["filter"] = filter
     return safe_get("strings", params)
 
+@mcp.tool()
+def set_bookmark(address: str, type: str, category: str, comment: str) -> str:
+    """
+    Set a bookmark at a specific address.
+    
+    Args:
+        address: Address where to set the bookmark
+        type: Bookmark type (e.g. 'Note', 'Warning', 'TODO', 'Bug', 'Analysis')
+        category: Bookmark category for organization
+        comment: Bookmark comment text
+        
+    Returns:
+        Success or failure message
+    """
+    return safe_post("set_bookmark", {
+        "address": address,
+        "type": type,
+        "category": category,
+        "comment": comment
+    })
+
+@mcp.tool()
+def get_bookmarks(address: str = None, type: str = None) -> str:
+    """
+    Get bookmarks at an address or of a specific type.
+    
+    Args:
+        address: Optional address to get bookmarks from
+        type: Optional bookmark type to filter by
+        
+    Returns:
+        List of bookmarks
+    """
+    params = {}
+    if address:
+        params["address"] = address
+    if type:
+        params["type"] = type
+    return "\n".join(safe_get("get_bookmarks", params))
+
+@mcp.tool()
+def search_bookmarks(search_text: str, max_results: int = 100) -> str:
+    """
+    Search bookmarks by text content.
+    
+    Args:
+        search_text: Text to search for in bookmark comments
+        max_results: Maximum number of results to return
+        
+    Returns:
+        List of matching bookmarks
+    """
+    return "\n".join(safe_get("search_bookmarks", {
+        "searchText": search_text,
+        "maxResults": max_results
+    }))
+
+@mcp.tool()
+def get_call_graph(function_address: str, depth: int = 1) -> str:
+    """
+    Get call graph around a function showing both callers and callees.
+    
+    Args:
+        function_address: Address or name of the function
+        depth: Depth of call graph to retrieve
+        
+    Returns:
+        Call graph information
+    """
+    return "\n".join(safe_get("get_call_graph", {
+        "functionAddress": function_address,
+        "depth": depth
+    }))
+
+@mcp.tool()
+def get_function_callers(function_address: str) -> str:
+    """
+    Get all functions that call a specific function.
+    
+    Args:
+        function_address: Address or name of the function
+        
+    Returns:
+        List of calling functions
+    """
+    return "\n".join(safe_get("get_callers", {
+        "functionAddress": function_address
+    }))
+
+@mcp.tool()
+def get_function_callees(function_address: str) -> str:
+    """
+    Get all functions called by a specific function.
+    
+    Args:
+        function_address: Address or name of the function
+        
+    Returns:
+        List of called functions
+    """
+    return "\n".join(safe_get("get_callees", {
+        "functionAddress": function_address
+    }))
+
+@mcp.tool()
+def find_constant_uses(value: str, max_results: int = 500) -> str:
+    """
+    Find all uses of a specific constant value in the program.
+    
+    Args:
+        value: Constant value to search for (supports hex with 0x, decimal, negative)
+        max_results: Maximum number of results to return
+        
+    Returns:
+        List of instructions using the constant
+    """
+    return "\n".join(safe_get("find_constant", {
+        "value": value,
+        "maxResults": max_results
+    }))
+
+@mcp.tool()
+def find_constants_in_range(min_value: str, max_value: str, max_results: int = 500) -> str:
+    """
+    Find all constants within a specific numeric range.
+    
+    Args:
+        min_value: Minimum value (inclusive, supports hex/decimal)
+        max_value: Maximum value (inclusive, supports hex/decimal)
+        max_results: Maximum number of results to return
+        
+    Returns:
+        List of constants found in the range with occurrence counts
+    """
+    return "\n".join(safe_get("find_constants_in_range", {
+        "minValue": min_value,
+        "maxValue": max_value,
+        "maxResults": max_results
+    }))
+
+@mcp.tool()
+def get_memory_blocks() -> str:
+    """
+    Get all memory blocks in the program.
+    
+    Returns:
+        List of memory blocks with their properties
+    """
+    return "\n".join(safe_get("memory_blocks"))
+
+@mcp.tool()
+def read_memory(address: str, length: int = 16) -> str:
+    """
+    Read memory at a specific address.
+    
+    Args:
+        address: Address to read from
+        length: Number of bytes to read (default: 16)
+        
+    Returns:
+        Hex dump of memory content
+    """
+    return "\n".join(safe_get("read_memory", {
+        "address": address,
+        "length": length
+    }))
+
+@mcp.tool()
+def get_function_info(address: str) -> str:
+    """
+    Get detailed information about a function.
+    
+    Args:
+        address: Address of the function
+        
+    Returns:
+        Detailed function information including parameters and local variables
+    """
+    return "\n".join(safe_get("get_function_info", {
+        "address": address
+    }))
+
+@mcp.tool()
+def list_function_calls(function_address: str) -> str:
+    """
+    List all function calls within a specific function.
+    
+    Args:
+        function_address: Address of the function to analyze
+        
+    Returns:
+        List of function calls made within the function
+    """
+    return "\n".join(safe_get("list_function_calls", {
+        "functionAddress": function_address
+    }))
+
 def main():
     parser = argparse.ArgumentParser(description="MCP server for Ghidra")
     parser.add_argument("--ghidra-server", type=str, default=DEFAULT_GHIDRA_SERVER,
