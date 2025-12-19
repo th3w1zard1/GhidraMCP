@@ -5,6 +5,7 @@ import ghidra.framework.plugintool.PluginTool;
 import ghidra.program.model.address.Address;
 import ghidra.program.model.address.GlobalNamespace;
 import ghidra.program.model.listing.*;
+import ghidra.program.model.mem.Memory;
 import ghidra.program.model.mem.MemoryBlock;
 import ghidra.program.model.symbol.*;
 import ghidra.program.model.symbol.ReferenceManager;
@@ -488,6 +489,230 @@ public class GhidraMCPPlugin extends Plugin {
             Map<String, String> qparams = parseQueryParams(exchange);
             String address = qparams.get("address");
             sendResponse(exchange, getDataAtAddress(address));
+        });
+
+        // Additional missing tools from reverse-engineering-assistant
+        
+        // Functions tools
+        server.createContext("/functions/get_count", exchange -> {
+            Map<String, String> qparams = parseQueryParams(exchange);
+            boolean filterDefaultNames = Boolean.parseBoolean(qparams.getOrDefault("filterDefaultNames", "true"));
+            sendResponse(exchange, getFunctionCount(filterDefaultNames));
+        });
+
+        server.createContext("/functions/get_by_similarity", exchange -> {
+            Map<String, String> qparams = parseQueryParams(exchange);
+            String searchString = qparams.get("searchString");
+            int startIndex = parseIntOrDefault(qparams.get("startIndex"), 0);
+            int maxCount = parseIntOrDefault(qparams.get("maxCount"), 100);
+            boolean filterDefaultNames = Boolean.parseBoolean(qparams.getOrDefault("filterDefaultNames", "true"));
+            sendResponse(exchange, getFunctionsBySimilarity(searchString, startIndex, maxCount, filterDefaultNames));
+        });
+
+        server.createContext("/functions/get_undefined_candidates", exchange -> {
+            Map<String, String> qparams = parseQueryParams(exchange);
+            int startIndex = parseIntOrDefault(qparams.get("startIndex"), 0);
+            int maxCandidates = parseIntOrDefault(qparams.get("maxCandidates"), 100);
+            int minReferenceCount = parseIntOrDefault(qparams.get("minReferenceCount"), 1);
+            sendResponse(exchange, getUndefinedFunctionCandidates(startIndex, maxCandidates, minReferenceCount));
+        });
+
+        server.createContext("/functions/create", exchange -> {
+            Map<String, String> params = parsePostParams(exchange);
+            String address = params.get("address");
+            String name = params.get("name");
+            sendResponse(exchange, createFunction(address, name));
+        });
+
+        server.createContext("/functions/tags", exchange -> {
+            Map<String, String> params = parsePostParams(exchange);
+            String function = params.get("function");
+            String mode = params.get("mode");
+            String tagsStr = params.get("tags");
+            sendResponse(exchange, manageFunctionTags(function, mode, tagsStr));
+        });
+
+        // Strings tools
+        server.createContext("/strings/get_by_similarity", exchange -> {
+            Map<String, String> qparams = parseQueryParams(exchange);
+            String searchString = qparams.get("searchString");
+            int startIndex = parseIntOrDefault(qparams.get("startIndex"), 0);
+            int maxCount = parseIntOrDefault(qparams.get("maxCount"), 100);
+            boolean includeReferencingFunctions = Boolean.parseBoolean(qparams.getOrDefault("includeReferencingFunctions", "false"));
+            sendResponse(exchange, getStringsBySimilarity(searchString, startIndex, maxCount, includeReferencingFunctions));
+        });
+
+        // Comments tools
+        server.createContext("/comments/set", exchange -> {
+            Map<String, String> params = parsePostParams(exchange);
+            String addressOrSymbol = params.get("addressOrSymbol");
+            String commentType = params.getOrDefault("commentType", "eol");
+            String comment = params.get("comment");
+            sendResponse(exchange, setComment(addressOrSymbol, commentType, comment));
+        });
+
+        server.createContext("/comments/get", exchange -> {
+            Map<String, String> qparams = parseQueryParams(exchange);
+            String addressOrSymbol = qparams.get("addressOrSymbol");
+            String startAddr = qparams.get("start");
+            String endAddr = qparams.get("end");
+            String commentTypesStr = qparams.get("commentTypes");
+            sendResponse(exchange, getComments(addressOrSymbol, startAddr, endAddr, commentTypesStr));
+        });
+
+        server.createContext("/comments/remove", exchange -> {
+            Map<String, String> params = parsePostParams(exchange);
+            String addressOrSymbol = params.get("addressOrSymbol");
+            String commentType = params.get("commentType");
+            sendResponse(exchange, removeComment(addressOrSymbol, commentType));
+        });
+
+        server.createContext("/comments/search", exchange -> {
+            Map<String, String> qparams = parseQueryParams(exchange);
+            String searchText = qparams.get("searchText");
+            boolean caseSensitive = Boolean.parseBoolean(qparams.getOrDefault("caseSensitive", "false"));
+            String commentTypesStr = qparams.get("commentTypes");
+            int maxResults = parseIntOrDefault(qparams.get("maxResults"), 100);
+            sendResponse(exchange, searchComments(searchText, caseSensitive, commentTypesStr, maxResults));
+        });
+
+        // Data tools
+        server.createContext("/data/apply_data_type", exchange -> {
+            Map<String, String> params = parsePostParams(exchange);
+            String addressOrSymbol = params.get("addressOrSymbol");
+            String dataTypeString = params.get("dataTypeString");
+            String archiveName = params.getOrDefault("archiveName", "");
+            sendResponse(exchange, applyDataType(addressOrSymbol, dataTypeString, archiveName));
+        });
+
+        // Symbols tools
+        server.createContext("/symbols/get_count", exchange -> {
+            Map<String, String> qparams = parseQueryParams(exchange);
+            boolean includeExternal = Boolean.parseBoolean(qparams.getOrDefault("includeExternal", "false"));
+            boolean filterDefaultNames = Boolean.parseBoolean(qparams.getOrDefault("filterDefaultNames", "true"));
+            sendResponse(exchange, getSymbolsCount(includeExternal, filterDefaultNames));
+        });
+
+        server.createContext("/symbols/get", exchange -> {
+            Map<String, String> qparams = parseQueryParams(exchange);
+            boolean includeExternal = Boolean.parseBoolean(qparams.getOrDefault("includeExternal", "false"));
+            int startIndex = parseIntOrDefault(qparams.get("startIndex"), 0);
+            int maxCount = parseIntOrDefault(qparams.get("maxCount"), 200);
+            boolean filterDefaultNames = Boolean.parseBoolean(qparams.getOrDefault("filterDefaultNames", "true"));
+            sendResponse(exchange, getSymbols(includeExternal, startIndex, maxCount, filterDefaultNames));
+        });
+
+        // Imports/Exports tools
+        server.createContext("/imports/find_references", exchange -> {
+            Map<String, String> qparams = parseQueryParams(exchange);
+            String importName = qparams.get("importName");
+            String libraryName = qparams.get("libraryName");
+            int maxResults = parseIntOrDefault(qparams.get("maxResults"), 100);
+            sendResponse(exchange, findImportReferences(importName, libraryName, maxResults));
+        });
+
+        server.createContext("/imports/resolve_thunk", exchange -> {
+            Map<String, String> qparams = parseQueryParams(exchange);
+            String address = qparams.get("address");
+            sendResponse(exchange, resolveThunk(address));
+        });
+
+        // Call Graph tools
+        server.createContext("/callgraph/get_tree", exchange -> {
+            Map<String, String> qparams = parseQueryParams(exchange);
+            String functionAddress = qparams.get("functionAddress");
+            String direction = qparams.getOrDefault("direction", "callees");
+            int maxDepth = parseIntOrDefault(qparams.get("maxDepth"), 3);
+            sendResponse(exchange, getCallTree(functionAddress, direction, maxDepth));
+        });
+
+        server.createContext("/callgraph/find_common_callers", exchange -> {
+            Map<String, String> params = parsePostParams(exchange);
+            String functionAddressesStr = params.get("functionAddresses");
+            sendResponse(exchange, findCommonCallers(functionAddressesStr));
+        });
+
+        // Constants tools
+        server.createContext("/constants/list_common", exchange -> {
+            Map<String, String> qparams = parseQueryParams(exchange);
+            boolean includeSmallValues = Boolean.parseBoolean(qparams.getOrDefault("includeSmallValues", "false"));
+            String minValue = qparams.get("minValue");
+            int topN = parseIntOrDefault(qparams.get("topN"), 50);
+            sendResponse(exchange, listCommonConstants(includeSmallValues, minValue, topN));
+        });
+
+        // Data Flow tools
+        server.createContext("/dataflow/find_variable_accesses", exchange -> {
+            Map<String, String> qparams = parseQueryParams(exchange);
+            String functionAddress = qparams.get("functionAddress");
+            String variableName = qparams.get("variableName");
+            sendResponse(exchange, findVariableAccesses(functionAddress, variableName));
+        });
+
+        // Vtable tools
+        server.createContext("/vtable/find_containing_function", exchange -> {
+            Map<String, String> qparams = parseQueryParams(exchange);
+            String functionAddress = qparams.get("functionAddress");
+            sendResponse(exchange, findVtablesContainingFunction(functionAddress));
+        });
+
+        // Bookmarks tools
+        server.createContext("/bookmarks/remove", exchange -> {
+            Map<String, String> params = parsePostParams(exchange);
+            String addressOrSymbol = params.get("addressOrSymbol");
+            String type = params.get("type");
+            String category = params.get("category");
+            sendResponse(exchange, removeBookmark(addressOrSymbol, type, category));
+        });
+
+        server.createContext("/bookmarks/list_categories", exchange -> {
+            Map<String, String> qparams = parseQueryParams(exchange);
+            String type = qparams.get("type");
+            sendResponse(exchange, listBookmarkCategories(type));
+        });
+
+        // Decompiler tools
+        server.createContext("/decompiler/search", exchange -> {
+            Map<String, String> qparams = parseQueryParams(exchange);
+            String pattern = qparams.get("pattern");
+            boolean caseSensitive = Boolean.parseBoolean(qparams.getOrDefault("caseSensitive", "false"));
+            int maxResults = parseIntOrDefault(qparams.get("maxResults"), 50);
+            boolean overrideMaxFunctionsLimit = Boolean.parseBoolean(qparams.getOrDefault("overrideMaxFunctionsLimit", "false"));
+            sendResponse(exchange, searchDecompilation(pattern, caseSensitive, maxResults, overrideMaxFunctionsLimit));
+        });
+
+        server.createContext("/decompiler/rename_variables", exchange -> {
+            Map<String, String> params = parsePostParams(exchange);
+            String functionNameOrAddress = params.get("functionNameOrAddress");
+            String variableMappingsStr = params.get("variableMappings");
+            sendResponse(exchange, renameVariables(functionNameOrAddress, variableMappingsStr));
+        });
+
+        server.createContext("/decompiler/change_variable_datatypes", exchange -> {
+            Map<String, String> params = parsePostParams(exchange);
+            String functionNameOrAddress = params.get("functionNameOrAddress");
+            String datatypeMappingsStr = params.get("datatypeMappings");
+            String archiveName = params.getOrDefault("archiveName", "");
+            sendResponse(exchange, changeVariableDataTypes(functionNameOrAddress, datatypeMappingsStr, archiveName));
+        });
+
+        server.createContext("/decompiler/get_callers_decompiled", exchange -> {
+            Map<String, String> qparams = parseQueryParams(exchange);
+            String functionNameOrAddress = qparams.get("functionNameOrAddress");
+            int startIndex = parseIntOrDefault(qparams.get("startIndex"), 0);
+            int maxCallers = parseIntOrDefault(qparams.get("maxCallers"), 10);
+            boolean includeCallContext = Boolean.parseBoolean(qparams.getOrDefault("includeCallContext", "true"));
+            sendResponse(exchange, getCallersDecompiled(functionNameOrAddress, startIndex, maxCallers, includeCallContext));
+        });
+
+        server.createContext("/decompiler/get_referencers_decompiled", exchange -> {
+            Map<String, String> qparams = parseQueryParams(exchange);
+            String addressOrSymbol = qparams.get("addressOrSymbol");
+            int startIndex = parseIntOrDefault(qparams.get("startIndex"), 0);
+            int maxReferencers = parseIntOrDefault(qparams.get("maxReferencers"), 10);
+            boolean includeRefContext = Boolean.parseBoolean(qparams.getOrDefault("includeRefContext", "true"));
+            boolean includeDataRefs = Boolean.parseBoolean(qparams.getOrDefault("includeDataRefs", "true"));
+            sendResponse(exchange, getReferencersDecompiled(addressOrSymbol, startIndex, maxReferencers, includeRefContext, includeDataRefs));
         });
 
         server.setExecutor(null);
@@ -2804,6 +3029,1438 @@ public class GhidraMCPPlugin extends Plugin {
         } catch (Exception e) {
             return "Error: " + e.getMessage();
         }
+    }
+
+    // ----------------------------------------------------------------------------------
+    // Additional helper methods for missing tools
+    // ----------------------------------------------------------------------------------
+
+    /**
+     * Get function count
+     */
+    private String getFunctionCount(boolean filterDefaultNames) {
+        Program program = getCurrentProgram();
+        if (program == null) return "No program loaded";
+        try {
+            FunctionManager funcMgr = program.getFunctionManager();
+            FunctionIterator functions = funcMgr.getFunctions(true);
+            int count = 0;
+            while (functions.hasNext()) {
+                Function func = functions.next();
+                if (filterDefaultNames && func.getName().startsWith("FUN_")) {
+                    continue;
+                }
+                count++;
+            }
+            return "{\"count\":" + count + "}";
+        } catch (Exception e) {
+            return "Error: " + e.getMessage();
+        }
+    }
+
+    /**
+     * Get functions by similarity
+     */
+    private String getFunctionsBySimilarity(String searchString, int startIndex, int maxCount, boolean filterDefaultNames) {
+        Program program = getCurrentProgram();
+        if (program == null) return "No program loaded";
+        if (searchString == null || searchString.trim().isEmpty()) return "Search string is required";
+        try {
+            FunctionManager funcMgr = program.getFunctionManager();
+            FunctionIterator functions = funcMgr.getFunctions(true);
+            List<Function> matchingFunctions = new ArrayList<>();
+            
+            while (functions.hasNext()) {
+                Function func = functions.next();
+                if (filterDefaultNames && func.getName().startsWith("FUN_")) {
+                    continue;
+                }
+                if (func.getName().toLowerCase().contains(searchString.toLowerCase())) {
+                    matchingFunctions.add(func);
+                }
+            }
+            
+            // Sort by similarity (simple substring match for now)
+            matchingFunctions.sort((a, b) -> {
+                int aScore = longestCommonSubstring(searchString.toLowerCase(), a.getName().toLowerCase());
+                int bScore = longestCommonSubstring(searchString.toLowerCase(), b.getName().toLowerCase());
+                return Integer.compare(bScore, aScore);
+            });
+            
+            int endIndex = Math.min(startIndex + maxCount, matchingFunctions.size());
+            StringBuilder result = new StringBuilder("{\"functions\":[");
+            for (int i = startIndex; i < endIndex; i++) {
+                Function func = matchingFunctions.get(i);
+                if (i > startIndex) result.append(",");
+                result.append("{\"name\":\"").append(func.getName()).append("\",");
+                result.append("\"address\":\"").append(func.getEntryPoint()).append("\"}");
+            }
+            result.append("],\"totalCount\":").append(matchingFunctions.size()).append("}");
+            return result.toString();
+        } catch (Exception e) {
+            return "Error: " + e.getMessage();
+        }
+    }
+
+    /**
+     * Helper for longest common substring
+     */
+    private int longestCommonSubstring(String s1, String s2) {
+        int max = 0;
+        for (int i = 0; i < s1.length(); i++) {
+            for (int j = i + 1; j <= s1.length(); j++) {
+                String substr = s1.substring(i, j);
+                if (s2.contains(substr)) {
+                    max = Math.max(max, substr.length());
+                }
+            }
+        }
+        return max;
+    }
+
+    /**
+     * Get undefined function candidates
+     */
+    private String getUndefinedFunctionCandidates(int startIndex, int maxCandidates, int minReferenceCount) {
+        Program program = getCurrentProgram();
+        if (program == null) return "No program loaded";
+        try {
+            FunctionManager funcMgr = program.getFunctionManager();
+            ReferenceManager refMgr = program.getReferenceManager();
+            Map<Address, Integer> candidates = new HashMap<>();
+            
+            ReferenceIterator refIter = refMgr.getReferenceIterator(program.getMinAddress());
+            while (refIter.hasNext()) {
+                Reference ref = refIter.next();
+                if (!ref.getReferenceType().isCall() && !ref.getReferenceType().isData()) {
+                    continue;
+                }
+                Address target = ref.getToAddress();
+                if (funcMgr.getFunctionAt(target) == null && !target.isExternalAddress()) {
+                    MemoryBlock block = program.getMemory().getBlock(target);
+                    if (block != null && block.isExecute()) {
+                        candidates.put(target, candidates.getOrDefault(target, 0) + 1);
+                    }
+                }
+            }
+            
+            List<Map.Entry<Address, Integer>> sorted = new ArrayList<>(candidates.entrySet());
+            sorted.sort((a, b) -> Integer.compare(b.getValue(), a.getValue()));
+            sorted.removeIf(e -> e.getValue() < minReferenceCount);
+            
+            int endIndex = Math.min(startIndex + maxCandidates, sorted.size());
+            StringBuilder result = new StringBuilder("{\"candidates\":[");
+            for (int i = startIndex; i < endIndex; i++) {
+                Map.Entry<Address, Integer> entry = sorted.get(i);
+                if (i > startIndex) result.append(",");
+                result.append("{\"address\":\"").append(entry.getKey()).append("\",");
+                result.append("\"referenceCount\":").append(entry.getValue()).append("}");
+            }
+            result.append("],\"totalCandidates\":").append(sorted.size()).append("}");
+            return result.toString();
+        } catch (Exception e) {
+            return "Error: " + e.getMessage();
+        }
+    }
+
+    /**
+     * Create function at address
+     */
+    private String createFunction(String address, String name) {
+        Program program = getCurrentProgram();
+        if (program == null) return "No program loaded";
+        if (address == null) return "Address is required";
+        try {
+            Address addr = program.getAddressFactory().getAddress(address);
+            FunctionManager funcMgr = program.getFunctionManager();
+            if (funcMgr.getFunctionAt(addr) != null) {
+                return "Function already exists at " + address;
+            }
+            
+            int txId = program.startTransaction("Create Function");
+            try {
+                ghidra.app.cmd.function.CreateFunctionCmd cmd = new ghidra.app.cmd.function.CreateFunctionCmd(addr);
+                boolean success = cmd.applyTo(program);
+                if (success && name != null && !name.trim().isEmpty()) {
+                    Function func = funcMgr.getFunctionAt(addr);
+                    if (func != null) {
+                        func.setName(name, SourceType.USER_DEFINED);
+                    }
+                }
+                program.endTransaction(txId, true);
+                return success ? "Function created successfully" : "Failed to create function";
+            } catch (Exception e) {
+                program.endTransaction(txId, false);
+                throw e;
+            }
+        } catch (Exception e) {
+            return "Error: " + e.getMessage();
+        }
+    }
+
+    /**
+     * Manage function tags
+     */
+    private String manageFunctionTags(String function, String mode, String tagsStr) {
+        Program program = getCurrentProgram();
+        if (program == null) return "No program loaded";
+        if (function == null || mode == null) return "Function and mode are required";
+        try {
+            FunctionManager funcMgr = program.getFunctionManager();
+            Function func = funcMgr.getFunction(function);
+            if (func == null) {
+                Address addr = program.getAddressFactory().getAddress(function);
+                func = funcMgr.getFunctionAt(addr);
+            }
+            if (func == null) return "Function not found: " + function;
+            
+            int txId = program.startTransaction("Manage Function Tags");
+            try {
+                if ("get".equals(mode)) {
+                    Set<ghidra.program.model.listing.FunctionTag> tags = func.getTags();
+                    StringBuilder result = new StringBuilder("{\"tags\":[");
+                    boolean first = true;
+                    for (ghidra.program.model.listing.FunctionTag tag : tags) {
+                        if (!first) result.append(",");
+                        result.append("\"").append(tag.getName()).append("\"");
+                        first = false;
+                    }
+                    result.append("]}");
+                    program.endTransaction(txId, false);
+                    return result.toString();
+                } else if ("set".equals(mode) || "add".equals(mode) || "remove".equals(mode)) {
+                    if (tagsStr != null && !tagsStr.trim().isEmpty()) {
+                        String[] tags = tagsStr.split(",");
+                        for (String tagName : tags) {
+                            tagName = tagName.trim();
+                            if (tagName.isEmpty()) continue;
+                            if ("set".equals(mode) || "add".equals(mode)) {
+                                func.addTag(tagName);
+                            } else if ("remove".equals(mode)) {
+                                func.removeTag(tagName);
+                            }
+                        }
+                    }
+                    program.endTransaction(txId, true);
+                    return "Tags updated successfully";
+                } else if ("list".equals(mode)) {
+                    ghidra.program.model.listing.FunctionTagManager tagMgr = funcMgr.getFunctionTagManager();
+                    List<? extends ghidra.program.model.listing.FunctionTag> allTags = tagMgr.getAllFunctionTags();
+                    StringBuilder result = new StringBuilder("{\"tags\":[");
+                    boolean first = true;
+                    for (ghidra.program.model.listing.FunctionTag tag : allTags) {
+                        if (!first) result.append(",");
+                        result.append("{\"name\":\"").append(tag.getName()).append("\",");
+                        result.append("\"count\":").append(tagMgr.getUseCount(tag)).append("}");
+                        first = false;
+                    }
+                    result.append("]}");
+                    program.endTransaction(txId, false);
+                    return result.toString();
+                }
+                program.endTransaction(txId, false);
+                return "Unknown mode: " + mode;
+            } catch (Exception e) {
+                program.endTransaction(txId, false);
+                throw e;
+            }
+        } catch (Exception e) {
+            return "Error: " + e.getMessage();
+        }
+    }
+
+    /**
+     * Get strings by similarity
+     */
+    private String getStringsBySimilarity(String searchString, int startIndex, int maxCount, boolean includeReferencingFunctions) {
+        Program program = getCurrentProgram();
+        if (program == null) return "No program loaded";
+        if (searchString == null || searchString.trim().isEmpty()) return "Search string is required";
+        try {
+            Listing listing = program.getListing();
+            ghidra.program.model.listing.DataIterator dataIter = listing.getDefinedData(true);
+            List<ghidra.program.model.listing.Data> matchingStrings = new ArrayList<>();
+            
+            while (dataIter.hasNext()) {
+                ghidra.program.model.listing.Data data = dataIter.next();
+                if (data.getValue() instanceof String) {
+                    String str = (String) data.getValue();
+                    if (str.toLowerCase().contains(searchString.toLowerCase())) {
+                        matchingStrings.add(data);
+                    }
+                }
+            }
+            
+            // Sort by similarity
+            matchingStrings.sort((a, b) -> {
+                String aStr = ((String) a.getValue()).toLowerCase();
+                String bStr = ((String) b.getValue()).toLowerCase();
+                int aScore = longestCommonSubstring(searchString.toLowerCase(), aStr);
+                int bScore = longestCommonSubstring(searchString.toLowerCase(), bStr);
+                return Integer.compare(bScore, aScore);
+            });
+            
+            int endIndex = Math.min(startIndex + maxCount, matchingStrings.size());
+            StringBuilder result = new StringBuilder("{\"strings\":[");
+            for (int i = startIndex; i < endIndex; i++) {
+                ghidra.program.model.listing.Data data = matchingStrings.get(i);
+                if (i > startIndex) result.append(",");
+                result.append("{\"address\":\"").append(data.getAddress()).append("\",");
+                result.append("\"content\":\"").append(escapeJson((String) data.getValue())).append("\"}");
+            }
+            result.append("],\"totalCount\":").append(matchingStrings.size()).append("}");
+            return result.toString();
+        } catch (Exception e) {
+            return "Error: " + e.getMessage();
+        }
+    }
+
+    /**
+     * Escape JSON string
+     */
+    private String escapeJson(String str) {
+        return str.replace("\\", "\\\\").replace("\"", "\\\"").replace("\n", "\\n").replace("\r", "\\r").replace("\t", "\\t");
+    }
+
+    /**
+     * Set comment
+     */
+    private String setComment(String addressOrSymbol, String commentType, String comment) {
+        Program program = getCurrentProgram();
+        if (program == null) return "No program loaded";
+        if (addressOrSymbol == null || comment == null) return "Address and comment are required";
+        try {
+            Address addr = resolveAddressOrSymbol(program, addressOrSymbol);
+            if (addr == null) return "Invalid address or symbol: " + addressOrSymbol;
+            
+            ghidra.program.model.listing.CommentType type = ghidra.program.model.listing.CommentType.EOL;
+            if ("pre".equalsIgnoreCase(commentType)) type = ghidra.program.model.listing.CommentType.PRE;
+            else if ("post".equalsIgnoreCase(commentType)) type = ghidra.program.model.listing.CommentType.POST;
+            else if ("plate".equalsIgnoreCase(commentType)) type = ghidra.program.model.listing.CommentType.PLATE;
+            else if ("repeatable".equalsIgnoreCase(commentType)) type = ghidra.program.model.listing.CommentType.REPEATABLE;
+            
+            int txId = program.startTransaction("Set Comment");
+            try {
+                Listing listing = program.getListing();
+                listing.setComment(addr, type, comment);
+                program.endTransaction(txId, true);
+                return "Comment set successfully";
+            } catch (Exception e) {
+                program.endTransaction(txId, false);
+                throw e;
+            }
+        } catch (Exception e) {
+            return "Error: " + e.getMessage();
+        }
+    }
+
+    /**
+     * Get comments
+     */
+    private String getComments(String addressOrSymbol, String startAddr, String endAddr, String commentTypesStr) {
+        Program program = getCurrentProgram();
+        if (program == null) return "No program loaded";
+        try {
+            Listing listing = program.getListing();
+            List<Map<String, String>> comments = new ArrayList<>();
+            
+            if (addressOrSymbol != null) {
+                Address addr = resolveAddressOrSymbol(program, addressOrSymbol);
+                if (addr == null) return "Invalid address or symbol: " + addressOrSymbol;
+                collectCommentsAtAddress(program, listing, addr, comments, commentTypesStr);
+            } else if (startAddr != null && endAddr != null) {
+                Address start = program.getAddressFactory().getAddress(startAddr);
+                Address end = program.getAddressFactory().getAddress(endAddr);
+                ghidra.program.model.address.AddressSet addrSet = new ghidra.program.model.address.AddressSet(start, end);
+                ghidra.program.model.listing.CodeUnitIterator iter = listing.getCodeUnits(addrSet, true);
+                while (iter.hasNext()) {
+                    collectCommentsAtAddress(program, listing, iter.next().getAddress(), comments, commentTypesStr);
+                }
+            } else {
+                return "Either addressOrSymbol or start/end addresses are required";
+            }
+            
+            StringBuilder result = new StringBuilder("{\"comments\":[");
+            for (int i = 0; i < comments.size(); i++) {
+                if (i > 0) result.append(",");
+                Map<String, String> comment = comments.get(i);
+                result.append("{\"address\":\"").append(comment.get("address")).append("\",");
+                result.append("\"type\":\"").append(comment.get("type")).append("\",");
+                result.append("\"comment\":\"").append(escapeJson(comment.get("comment"))).append("\"}");
+            }
+            result.append("],\"count\":").append(comments.size()).append("}");
+            return result.toString();
+        } catch (Exception e) {
+            return "Error: " + e.getMessage();
+        }
+    }
+
+    /**
+     * Collect comments at address
+     */
+    private void collectCommentsAtAddress(Program program, Listing listing, Address addr, List<Map<String, String>> comments, String commentTypesStr) {
+        ghidra.program.model.listing.CodeUnit cu = listing.getCodeUnitAt(addr);
+        if (cu == null) return;
+        
+        List<ghidra.program.model.listing.CommentType> types = new ArrayList<>();
+        if (commentTypesStr != null && !commentTypesStr.trim().isEmpty()) {
+            String[] typeStrs = commentTypesStr.split(",");
+            for (String typeStr : typeStrs) {
+                typeStr = typeStr.trim().toLowerCase();
+                if ("pre".equals(typeStr)) types.add(ghidra.program.model.listing.CommentType.PRE);
+                else if ("eol".equals(typeStr)) types.add(ghidra.program.model.listing.CommentType.EOL);
+                else if ("post".equals(typeStr)) types.add(ghidra.program.model.listing.CommentType.POST);
+                else if ("plate".equals(typeStr)) types.add(ghidra.program.model.listing.CommentType.PLATE);
+                else if ("repeatable".equals(typeStr)) types.add(ghidra.program.model.listing.CommentType.REPEATABLE);
+            }
+        } else {
+            types.addAll(Arrays.asList(ghidra.program.model.listing.CommentType.values()));
+        }
+        
+        for (ghidra.program.model.listing.CommentType type : types) {
+            String comment = cu.getComment(type);
+            if (comment != null && !comment.isEmpty()) {
+                Map<String, String> commentInfo = new HashMap<>();
+                commentInfo.put("address", addr.toString());
+                commentInfo.put("type", type.toString());
+                commentInfo.put("comment", comment);
+                comments.add(commentInfo);
+            }
+        }
+    }
+
+    /**
+     * Remove comment
+     */
+    private String removeComment(String addressOrSymbol, String commentType) {
+        Program program = getCurrentProgram();
+        if (program == null) return "No program loaded";
+        if (addressOrSymbol == null || commentType == null) return "Address and comment type are required";
+        try {
+            Address addr = resolveAddressOrSymbol(program, addressOrSymbol);
+            if (addr == null) return "Invalid address or symbol: " + addressOrSymbol;
+            
+            ghidra.program.model.listing.CommentType type = ghidra.program.model.listing.CommentType.EOL;
+            if ("pre".equalsIgnoreCase(commentType)) type = ghidra.program.model.listing.CommentType.PRE;
+            else if ("post".equalsIgnoreCase(commentType)) type = ghidra.program.model.listing.CommentType.POST;
+            else if ("plate".equalsIgnoreCase(commentType)) type = ghidra.program.model.listing.CommentType.PLATE;
+            else if ("repeatable".equalsIgnoreCase(commentType)) type = ghidra.program.model.listing.CommentType.REPEATABLE;
+            
+            int txId = program.startTransaction("Remove Comment");
+            try {
+                Listing listing = program.getListing();
+                listing.setComment(addr, type, null);
+                program.endTransaction(txId, true);
+                return "Comment removed successfully";
+            } catch (Exception e) {
+                program.endTransaction(txId, false);
+                throw e;
+            }
+        } catch (Exception e) {
+            return "Error: " + e.getMessage();
+        }
+    }
+
+    /**
+     * Search comments
+     */
+    private String searchComments(String searchText, boolean caseSensitive, String commentTypesStr, int maxResults) {
+        Program program = getCurrentProgram();
+        if (program == null) return "No program loaded";
+        if (searchText == null || searchText.trim().isEmpty()) return "Search text is required";
+        try {
+            Listing listing = program.getListing();
+            List<Map<String, String>> results = new ArrayList<>();
+            String searchLower = caseSensitive ? searchText : searchText.toLowerCase();
+            
+            List<ghidra.program.model.listing.CommentType> types = new ArrayList<>();
+            if (commentTypesStr != null && !commentTypesStr.trim().isEmpty()) {
+                String[] typeStrs = commentTypesStr.split(",");
+                for (String typeStr : typeStrs) {
+                    typeStr = typeStr.trim().toLowerCase();
+                    if ("pre".equals(typeStr)) types.add(ghidra.program.model.listing.CommentType.PRE);
+                    else if ("eol".equals(typeStr)) types.add(ghidra.program.model.listing.CommentType.EOL);
+                    else if ("post".equals(typeStr)) types.add(ghidra.program.model.listing.CommentType.POST);
+                    else if ("plate".equals(typeStr)) types.add(ghidra.program.model.listing.CommentType.PLATE);
+                    else if ("repeatable".equals(typeStr)) types.add(ghidra.program.model.listing.CommentType.REPEATABLE);
+                }
+            } else {
+                types.addAll(Arrays.asList(ghidra.program.model.listing.CommentType.values()));
+            }
+            
+            for (ghidra.program.model.listing.CommentType type : types) {
+                if (results.size() >= maxResults) break;
+                ghidra.program.model.address.AddressIterator iter = listing.getCommentAddressIterator(type, program.getMemory(), true);
+                while (iter.hasNext() && results.size() < maxResults) {
+                    Address addr = iter.next();
+                    String comment = listing.getComment(type, addr);
+                    if (comment != null) {
+                        String commentLower = caseSensitive ? comment : comment.toLowerCase();
+                        if (commentLower.contains(searchLower)) {
+                            Map<String, String> result = new HashMap<>();
+                            result.put("address", addr.toString());
+                            result.put("type", type.toString());
+                            result.put("comment", comment);
+                            results.add(result);
+                        }
+                    }
+                }
+            }
+            
+            StringBuilder result = new StringBuilder("{\"results\":[");
+            for (int i = 0; i < results.size(); i++) {
+                if (i > 0) result.append(",");
+                Map<String, String> r = results.get(i);
+                result.append("{\"address\":\"").append(r.get("address")).append("\",");
+                result.append("\"type\":\"").append(r.get("type")).append("\",");
+                result.append("\"comment\":\"").append(escapeJson(r.get("comment"))).append("\"}");
+            }
+            result.append("],\"count\":").append(results.size()).append("}");
+            return result.toString();
+        } catch (Exception e) {
+            return "Error: " + e.getMessage();
+        }
+    }
+
+    /**
+     * Apply data type
+     */
+    private String applyDataType(String addressOrSymbol, String dataTypeString, String archiveName) {
+        Program program = getCurrentProgram();
+        if (program == null) return "No program loaded";
+        if (addressOrSymbol == null || dataTypeString == null) return "Address and data type are required";
+        try {
+            Address addr = resolveAddressOrSymbol(program, addressOrSymbol);
+            if (addr == null) return "Invalid address or symbol: " + addressOrSymbol;
+            
+            DataTypeManager dtm = program.getDataTypeManager();
+            DataType dataType = dtm.getDataType(dataTypeString);
+            if (dataType == null) {
+                // Try parsing as a type string
+                ghidra.util.data.DataTypeParser parser = new ghidra.util.data.DataTypeParser(dtm, dtm, null, ghidra.util.data.DataTypeParser.AllowedDataTypes.ALL);
+                try {
+                    dataType = parser.parse(dataTypeString);
+                } catch (Exception e) {
+                    return "Could not find or parse data type: " + dataTypeString;
+                }
+            }
+            
+            int txId = program.startTransaction("Apply Data Type");
+            try {
+                Listing listing = program.getListing();
+                if (listing.getDataAt(addr) != null) {
+                    listing.clearCodeUnits(addr, addr.add(dataType.getLength() - 1), false);
+                }
+                listing.createData(addr, dataType);
+                program.endTransaction(txId, true);
+                return "Data type applied successfully";
+            } catch (Exception e) {
+                program.endTransaction(txId, false);
+                throw e;
+            }
+        } catch (Exception e) {
+            return "Error: " + e.getMessage();
+        }
+    }
+
+    /**
+     * Get symbols count
+     */
+    private String getSymbolsCount(boolean includeExternal, boolean filterDefaultNames) {
+        Program program = getCurrentProgram();
+        if (program == null) return "No program loaded";
+        try {
+            SymbolTable symbolTable = program.getSymbolTable();
+            SymbolIterator iter = symbolTable.getAllSymbols(true);
+            int count = 0;
+            while (iter.hasNext()) {
+                Symbol sym = iter.next();
+                if (!includeExternal && sym.isExternal()) continue;
+                if (filterDefaultNames && (sym.getName().startsWith("FUN_") || sym.getName().startsWith("DAT_"))) continue;
+                count++;
+            }
+            return "{\"count\":" + count + "}";
+        } catch (Exception e) {
+            return "Error: " + e.getMessage();
+        }
+    }
+
+    /**
+     * Get symbols
+     */
+    private String getSymbols(boolean includeExternal, int startIndex, int maxCount, boolean filterDefaultNames) {
+        Program program = getCurrentProgram();
+        if (program == null) return "No program loaded";
+        try {
+            SymbolTable symbolTable = program.getSymbolTable();
+            SymbolIterator iter = symbolTable.getAllSymbols(true);
+            List<Symbol> symbols = new ArrayList<>();
+            
+            while (iter.hasNext()) {
+                Symbol sym = iter.next();
+                if (!includeExternal && sym.isExternal()) continue;
+                if (filterDefaultNames && (sym.getName().startsWith("FUN_") || sym.getName().startsWith("DAT_"))) continue;
+                symbols.add(sym);
+            }
+            
+            int endIndex = Math.min(startIndex + maxCount, symbols.size());
+            StringBuilder result = new StringBuilder("{\"symbols\":[");
+            for (int i = startIndex; i < endIndex; i++) {
+                Symbol sym = symbols.get(i);
+                if (i > startIndex) result.append(",");
+                result.append("{\"name\":\"").append(sym.getName()).append("\",");
+                result.append("\"address\":\"").append(sym.getAddress()).append("\",");
+                result.append("\"namespace\":\"").append(sym.getParentNamespace().getName()).append("\",");
+                result.append("\"type\":\"").append(sym.getSymbolType().toString()).append("\"}");
+            }
+            result.append("],\"totalCount\":").append(symbols.size()).append("}");
+            return result.toString();
+        } catch (Exception e) {
+            return "Error: " + e.getMessage();
+        }
+    }
+
+    /**
+     * Find import references
+     */
+    private String findImportReferences(String importName, String libraryName, int maxResults) {
+        Program program = getCurrentProgram();
+        if (program == null) return "No program loaded";
+        if (importName == null) return "Import name is required";
+        try {
+            FunctionManager funcMgr = program.getFunctionManager();
+            FunctionIterator externalFuncs = funcMgr.getExternalFunctions();
+            List<Function> matchingImports = new ArrayList<>();
+            
+            while (externalFuncs.hasNext()) {
+                Function func = externalFuncs.next();
+                if (!func.getName().equalsIgnoreCase(importName)) continue;
+                if (libraryName != null && !libraryName.isEmpty()) {
+                    ghidra.program.model.symbol.ExternalLocation extLoc = func.getExternalLocation();
+                    if (extLoc == null || !extLoc.getLibraryName().equalsIgnoreCase(libraryName)) continue;
+                }
+                matchingImports.add(func);
+            }
+            
+            if (matchingImports.isEmpty()) {
+                return "Import not found: " + importName;
+            }
+            
+            ReferenceManager refMgr = program.getReferenceManager();
+            List<Map<String, String>> references = new ArrayList<>();
+            Set<Address> seen = new HashSet<>();
+            
+            for (Function importFunc : matchingImports) {
+                if (references.size() >= maxResults) break;
+                Address importAddr = importFunc.getEntryPoint();
+                if (importAddr == null) continue;
+                
+                ReferenceIterator refIter = refMgr.getReferencesTo(importAddr);
+                while (refIter.hasNext() && references.size() < maxResults) {
+                    Reference ref = refIter.next();
+                    Address fromAddr = ref.getFromAddress();
+                    if (seen.contains(fromAddr)) continue;
+                    seen.add(fromAddr);
+                    
+                    Map<String, String> refInfo = new HashMap<>();
+                    refInfo.put("fromAddress", fromAddr.toString());
+                    refInfo.put("referenceType", ref.getReferenceType().toString());
+                    refInfo.put("isCall", String.valueOf(ref.getReferenceType().isCall()));
+                    
+                    Function containingFunc = funcMgr.getFunctionContaining(fromAddr);
+                    if (containingFunc != null) {
+                        refInfo.put("function", containingFunc.getName());
+                        refInfo.put("functionAddress", containingFunc.getEntryPoint().toString());
+                    }
+                    references.add(refInfo);
+                }
+            }
+            
+            StringBuilder result = new StringBuilder("{\"references\":[");
+            for (int i = 0; i < references.size(); i++) {
+                if (i > 0) result.append(",");
+                Map<String, String> ref = references.get(i);
+                result.append("{\"fromAddress\":\"").append(ref.get("fromAddress")).append("\",");
+                result.append("\"referenceType\":\"").append(ref.get("referenceType")).append("\",");
+                result.append("\"isCall\":").append(ref.get("isCall"));
+                if (ref.containsKey("function")) {
+                    result.append(",\"function\":\"").append(ref.get("function")).append("\",");
+                    result.append("\"functionAddress\":\"").append(ref.get("functionAddress")).append("\"");
+                }
+                result.append("}");
+            }
+            result.append("],\"count\":").append(references.size()).append("}");
+            return result.toString();
+        } catch (Exception e) {
+            return "Error: " + e.getMessage();
+        }
+    }
+
+    /**
+     * Resolve thunk
+     */
+    private String resolveThunk(String address) {
+        Program program = getCurrentProgram();
+        if (program == null) return "No program loaded";
+        if (address == null) return "Address is required";
+        try {
+            Address addr = program.getAddressFactory().getAddress(address);
+            FunctionManager funcMgr = program.getFunctionManager();
+            Function func = funcMgr.getFunctionAt(addr);
+            if (func == null) func = funcMgr.getFunctionContaining(addr);
+            if (func == null) return "No function found at address: " + address;
+            
+            List<Map<String, String>> chain = new ArrayList<>();
+            Function current = func;
+            int depth = 0;
+            int maxDepth = 10;
+            
+            while (current != null && depth < maxDepth) {
+                Map<String, String> info = new HashMap<>();
+                info.put("name", current.getName());
+                info.put("address", current.getEntryPoint().toString());
+                info.put("isThunk", String.valueOf(current.isThunk()));
+                info.put("isExternal", String.valueOf(current.isExternal()));
+                
+                if (current.isExternal()) {
+                    ghidra.program.model.symbol.ExternalLocation extLoc = current.getExternalLocation();
+                    if (extLoc != null) {
+                        info.put("library", extLoc.getLibraryName());
+                    }
+                }
+                
+                chain.add(info);
+                
+                if (current.isThunk()) {
+                    Function next = current.getThunkedFunction(false);
+                    if (next != null && !next.equals(current)) {
+                        current = next;
+                        depth++;
+                    } else {
+                        break;
+                    }
+                } else {
+                    break;
+                }
+            }
+            
+            StringBuilder result = new StringBuilder("{\"chain\":[");
+            for (int i = 0; i < chain.size(); i++) {
+                if (i > 0) result.append(",");
+                Map<String, String> info = chain.get(i);
+                result.append("{\"name\":\"").append(info.get("name")).append("\",");
+                result.append("\"address\":\"").append(info.get("address")).append("\",");
+                result.append("\"isThunk\":").append(info.get("isThunk")).append(",");
+                result.append("\"isExternal\":").append(info.get("isExternal"));
+                if (info.containsKey("library")) {
+                    result.append(",\"library\":\"").append(info.get("library")).append("\"");
+                }
+                result.append("}");
+            }
+            result.append("],\"chainLength\":").append(chain.size()).append("}");
+            return result.toString();
+        } catch (Exception e) {
+            return "Error: " + e.getMessage();
+        }
+    }
+
+    /**
+     * Get call tree
+     */
+    private String getCallTree(String functionAddress, String direction, int maxDepth) {
+        Program program = getCurrentProgram();
+        if (program == null) return "No program loaded";
+        if (functionAddress == null) return "Function address is required";
+        try {
+            Address addr = program.getAddressFactory().getAddress(functionAddress);
+            FunctionManager funcMgr = program.getFunctionManager();
+            Function func = funcMgr.getFunctionAt(addr);
+            if (func == null) return "Function not found at: " + functionAddress;
+            
+            StringBuilder result = new StringBuilder();
+            result.append("Call tree for ").append(func.getName()).append(" (").append(direction).append("):\n\n");
+            
+            if ("callers".equalsIgnoreCase(direction)) {
+                buildCallerTree(func, result, 0, maxDepth, new HashSet<>());
+            } else {
+                buildCalleeTree(func, result, 0, maxDepth, new HashSet<>());
+            }
+            
+            return result.toString();
+        } catch (Exception e) {
+            return "Error: " + e.getMessage();
+        }
+    }
+
+    /**
+     * Build caller tree recursively
+     */
+    private void buildCallerTree(Function func, StringBuilder result, int depth, int maxDepth, Set<Address> visited) {
+        if (depth >= maxDepth || visited.contains(func.getEntryPoint())) return;
+        visited.add(func.getEntryPoint());
+        
+        for (int i = 0; i < depth; i++) result.append("  ");
+        result.append(func.getName()).append("\n");
+        
+        Function[] callers = func.getCallingFunctions(new ConsoleTaskMonitor()).toArray(new Function[0]);
+        for (Function caller : callers) {
+            buildCallerTree(caller, result, depth + 1, maxDepth, visited);
+        }
+    }
+
+    /**
+     * Build callee tree recursively
+     */
+    private void buildCalleeTree(Function func, StringBuilder result, int depth, int maxDepth, Set<Address> visited) {
+        if (depth >= maxDepth || visited.contains(func.getEntryPoint())) return;
+        visited.add(func.getEntryPoint());
+        
+        for (int i = 0; i < depth; i++) result.append("  ");
+        result.append(func.getName()).append("\n");
+        
+        Function[] callees = func.getCalledFunctions(new ConsoleTaskMonitor()).toArray(new Function[0]);
+        for (Function callee : callees) {
+            buildCalleeTree(callee, result, depth + 1, maxDepth, visited);
+        }
+    }
+
+    /**
+     * Find common callers
+     */
+    private String findCommonCallers(String functionAddressesStr) {
+        Program program = getCurrentProgram();
+        if (program == null) return "No program loaded";
+        if (functionAddressesStr == null || functionAddressesStr.trim().isEmpty()) return "Function addresses are required";
+        try {
+            String[] addrStrs = functionAddressesStr.split(",");
+            List<Function> targetFunctions = new ArrayList<>();
+            FunctionManager funcMgr = program.getFunctionManager();
+            
+            for (String addrStr : addrStrs) {
+                addrStr = addrStr.trim();
+                Address addr = program.getAddressFactory().getAddress(addrStr);
+                Function func = funcMgr.getFunctionAt(addr);
+                if (func == null) continue;
+                targetFunctions.add(func);
+            }
+            
+            if (targetFunctions.isEmpty()) return "No valid functions found";
+            
+            // Find callers of first function
+            Set<Function> commonCallers = new HashSet<>(targetFunctions.get(0).getCallingFunctions(new ConsoleTaskMonitor()));
+            
+            // Intersect with callers of other functions
+            for (int i = 1; i < targetFunctions.size(); i++) {
+                Set<Function> callers = new HashSet<>(targetFunctions.get(i).getCallingFunctions(new ConsoleTaskMonitor()));
+                commonCallers.retainAll(callers);
+            }
+            
+            StringBuilder result = new StringBuilder("Common callers:\n");
+            for (Function caller : commonCallers) {
+                result.append("  ").append(caller.getName()).append(" (").append(caller.getEntryPoint()).append(")\n");
+            }
+            return result.toString();
+        } catch (Exception e) {
+            return "Error: " + e.getMessage();
+        }
+    }
+
+    /**
+     * List common constants
+     */
+    private String listCommonConstants(boolean includeSmallValues, String minValue, int topN) {
+        Program program = getCurrentProgram();
+        if (program == null) return "No program loaded";
+        try {
+            Map<Long, Integer> constantCounts = new HashMap<>();
+            Listing listing = program.getListing();
+            ghidra.program.model.listing.InstructionIterator iter = listing.getInstructions(true);
+            
+            while (iter.hasNext()) {
+                Instruction instr = iter.next();
+                for (int i = 0; i < instr.getNumOperands(); i++) {
+                    Object[] opObjs = instr.getOpObjects(i);
+                    for (Object opObj : opObjs) {
+                        if (opObj instanceof ghidra.program.model.scalar.Scalar) {
+                            ghidra.program.model.scalar.Scalar scalar = (ghidra.program.model.scalar.Scalar) opObj;
+                            long value = scalar.getSignedValue();
+                            if (!includeSmallValues && value >= 0 && value <= 255) continue;
+                            if (minValue != null && !minValue.isEmpty()) {
+                                try {
+                                    long min = Long.parseLong(minValue);
+                                    if (value < min) continue;
+                                } catch (NumberFormatException e) {
+                                    // Ignore invalid minValue
+                                }
+                            }
+                            constantCounts.put(value, constantCounts.getOrDefault(value, 0) + 1);
+                        }
+                    }
+                }
+            }
+            
+            List<Map.Entry<Long, Integer>> sorted = new ArrayList<>(constantCounts.entrySet());
+            sorted.sort((a, b) -> Integer.compare(b.getValue(), a.getValue()));
+            
+            int count = Math.min(topN, sorted.size());
+            StringBuilder result = new StringBuilder("{\"constants\":[");
+            for (int i = 0; i < count; i++) {
+                if (i > 0) result.append(",");
+                Map.Entry<Long, Integer> entry = sorted.get(i);
+                result.append("{\"value\":").append(entry.getKey()).append(",");
+                result.append("\"count\":").append(entry.getValue()).append("}");
+            }
+            result.append("]}");
+            return result.toString();
+        } catch (Exception e) {
+            return "Error: " + e.getMessage();
+        }
+    }
+
+    /**
+     * Find variable accesses
+     */
+    private String findVariableAccesses(String functionAddress, String variableName) {
+        Program program = getCurrentProgram();
+        if (program == null) return "No program loaded";
+        if (functionAddress == null || variableName == null) return "Function address and variable name are required";
+        try {
+            Address addr = program.getAddressFactory().getAddress(functionAddress);
+            FunctionManager funcMgr = program.getFunctionManager();
+            Function func = funcMgr.getFunctionAt(addr);
+            if (func == null) return "Function not found at: " + functionAddress;
+            
+            DecompInterface decomp = new DecompInterface();
+            decomp.openProgram(program);
+            try {
+                DecompileResults results = decomp.decompileFunction(func, 30, new ConsoleTaskMonitor());
+                if (!results.decompileCompleted()) {
+                    return "Decompilation failed: " + results.getErrorMessage();
+                }
+                
+                HighFunction highFunc = results.getHighFunction();
+                if (highFunc == null) return "Could not get high-level function representation";
+                
+                LocalSymbolMap localMap = highFunc.getLocalSymbolMap();
+                HighSymbol sym = localMap.getSymbol(variableName);
+                if (sym == null) return "Variable not found: " + variableName;
+                
+                HighVariable var = sym.getHighVariable();
+                if (var == null) return "Could not get high variable for: " + variableName;
+                
+                StringBuilder result = new StringBuilder("Variable accesses for ").append(variableName).append(":\n\n");
+                Iterator<Varnode> varnodes = var.getVarnodes();
+                while (varnodes.hasNext()) {
+                    Varnode vn = varnodes.next();
+                    Iterator<ghidra.program.model.pcode.PcodeOp> uses = vn.getDescendants();
+                    while (uses.hasNext()) {
+                        ghidra.program.model.pcode.PcodeOp op = uses.next();
+                        Address opAddr = op.getSeqnum().getTarget();
+                        result.append("  ").append(opAddr).append(": ").append(op.getMnemonic()).append("\n");
+                    }
+                }
+                return result.toString();
+            } finally {
+                decomp.dispose();
+            }
+        } catch (Exception e) {
+            return "Error: " + e.getMessage();
+        }
+    }
+
+    /**
+     * Find vtables containing function
+     */
+    private String findVtablesContainingFunction(String functionAddress) {
+        Program program = getCurrentProgram();
+        if (program == null) return "No program loaded";
+        if (functionAddress == null) return "Function address is required";
+        try {
+            Address funcAddr = program.getAddressFactory().getAddress(functionAddress);
+            FunctionManager funcMgr = program.getFunctionManager();
+            Function func = funcMgr.getFunctionAt(funcAddr);
+            if (func == null) return "Function not found at: " + functionAddress;
+            
+            Memory memory = program.getMemory();
+            int pointerSize = program.getDefaultPointerSize();
+            List<Map<String, String>> vtables = new ArrayList<>();
+            
+            // Search for vtables that might contain this function
+            MemoryBlock[] blocks = memory.getBlocks();
+            for (MemoryBlock block : blocks) {
+                if (!block.isExecute()) continue;
+                Address start = block.getStart();
+                Address end = block.getEnd();
+                
+                for (Address addr = start; addr.compareTo(end) <= 0; addr = addr.add(pointerSize)) {
+                    try {
+                        long value = memory.getLong(addr);
+                        Address targetAddr = memory.getAddressFactory().getAddress(value);
+                        if (targetAddr != null && targetAddr.equals(funcAddr)) {
+                            // Found a potential vtable entry
+                            Map<String, String> vtableInfo = new HashMap<>();
+                            vtableInfo.put("vtableAddress", findVtableStart(program, addr).toString());
+                            vtableInfo.put("slotOffset", String.valueOf(addr.subtract(findVtableStart(program, addr))));
+                            vtables.add(vtableInfo);
+                        }
+                    } catch (Exception e) {
+                        // Continue searching
+                    }
+                }
+            }
+            
+            StringBuilder result = new StringBuilder("{\"vtables\":[");
+            for (int i = 0; i < vtables.size(); i++) {
+                if (i > 0) result.append(",");
+                Map<String, String> info = vtables.get(i);
+                result.append("{\"vtableAddress\":\"").append(info.get("vtableAddress")).append("\",");
+                result.append("\"slotOffset\":").append(info.get("slotOffset")).append("}");
+            }
+            result.append("]}");
+            return result.toString();
+        } catch (Exception e) {
+            return "Error: " + e.getMessage();
+        }
+    }
+
+    /**
+     * Find vtable start (simple heuristic)
+     */
+    private Address findVtableStart(Program program, Address addr) {
+        // Simple heuristic: look backwards for null pointer or different pattern
+        Memory memory = program.getMemory();
+        int pointerSize = program.getDefaultPointerSize();
+        Address current = addr;
+        int count = 0;
+        while (count < 100 && current != null) {
+            try {
+                long value = memory.getLong(current);
+                if (value == 0) break;
+                current = current.subtract(pointerSize);
+                count++;
+            } catch (Exception e) {
+                break;
+            }
+        }
+        return current != null ? current.add(pointerSize) : addr;
+    }
+
+    /**
+     * Remove bookmark
+     */
+    private String removeBookmark(String addressOrSymbol, String type, String category) {
+        Program program = getCurrentProgram();
+        if (program == null) return "No program loaded";
+        if (addressOrSymbol == null) return "Address is required";
+        try {
+            Address addr = resolveAddressOrSymbol(program, addressOrSymbol);
+            if (addr == null) return "Invalid address or symbol: " + addressOrSymbol;
+            
+            int txId = program.startTransaction("Remove Bookmark");
+            try {
+                ghidra.program.model.listing.BookmarkManager bmMgr = program.getBookmarkManager();
+                if (type != null && !type.isEmpty()) {
+                    bmMgr.removeBookmark(addr, type, category);
+                } else {
+                    ghidra.program.model.listing.Bookmark[] bookmarks = bmMgr.getBookmarks(addr);
+                    for (ghidra.program.model.listing.Bookmark bm : bookmarks) {
+                        bmMgr.removeBookmark(addr, bm.getType(), bm.getCategory());
+                    }
+                }
+                program.endTransaction(txId, true);
+                return "Bookmark removed successfully";
+            } catch (Exception e) {
+                program.endTransaction(txId, false);
+                throw e;
+            }
+        } catch (Exception e) {
+            return "Error: " + e.getMessage();
+        }
+    }
+
+    /**
+     * List bookmark categories
+     */
+    private String listBookmarkCategories(String type) {
+        Program program = getCurrentProgram();
+        if (program == null) return "No program loaded";
+        try {
+            ghidra.program.model.listing.BookmarkManager bmMgr = program.getBookmarkManager();
+            Set<String> categories = new HashSet<>();
+            
+            ghidra.program.model.address.AddressIterator iter = bmMgr.getBookmarkAddressIterator(type != null ? type : "Note");
+            while (iter.hasNext()) {
+                Address addr = iter.next();
+                ghidra.program.model.listing.Bookmark[] bookmarks = bmMgr.getBookmarks(addr);
+                for (ghidra.program.model.listing.Bookmark bm : bookmarks) {
+                    if (type == null || bm.getType().equals(type)) {
+                        categories.add(bm.getCategory());
+                    }
+                }
+            }
+            
+            StringBuilder result = new StringBuilder("{\"categories\":[");
+            boolean first = true;
+            for (String cat : categories) {
+                if (!first) result.append(",");
+                result.append("\"").append(cat).append("\"");
+                first = false;
+            }
+            result.append("]}");
+            return result.toString();
+        } catch (Exception e) {
+            return "Error: " + e.getMessage();
+        }
+    }
+
+    /**
+     * Search decompilation
+     */
+    private String searchDecompilation(String pattern, boolean caseSensitive, int maxResults, boolean overrideMaxFunctionsLimit) {
+        Program program = getCurrentProgram();
+        if (program == null) return "No program loaded";
+        if (pattern == null || pattern.trim().isEmpty()) return "Pattern is required";
+        try {
+            java.util.regex.Pattern regex = java.util.regex.Pattern.compile(pattern, caseSensitive ? 0 : java.util.regex.Pattern.CASE_INSENSITIVE);
+            FunctionManager funcMgr = program.getFunctionManager();
+            FunctionIterator functions = funcMgr.getFunctions(true);
+            DecompInterface decomp = new DecompInterface();
+            decomp.openProgram(program);
+            
+            List<Map<String, String>> results = new ArrayList<>();
+            int functionCount = 0;
+            int maxFunctions = overrideMaxFunctionsLimit ? Integer.MAX_VALUE : 10000;
+            
+            try {
+                while (functions.hasNext() && functionCount < maxFunctions && results.size() < maxResults) {
+                    Function func = functions.next();
+                    functionCount++;
+                    
+                    DecompileResults decompResults = decomp.decompileFunction(func, 30, new ConsoleTaskMonitor());
+                    if (decompResults.decompileCompleted()) {
+                        String decompiledCode = decompResults.getDecompiledFunction().getC();
+                        java.util.regex.Matcher matcher = regex.matcher(decompiledCode);
+                        if (matcher.find()) {
+                            Map<String, String> result = new HashMap<>();
+                            result.put("function", func.getName());
+                            result.put("address", func.getEntryPoint().toString());
+                            // Find line number
+                            int lineNum = 1;
+                            int matchPos = matcher.start();
+                            String beforeMatch = decompiledCode.substring(0, matchPos);
+                            for (int i = 0; i < beforeMatch.length(); i++) {
+                                if (beforeMatch.charAt(i) == '\n') lineNum++;
+                            }
+                            result.put("lineNumber", String.valueOf(lineNum));
+                            results.add(result);
+                        }
+                    }
+                }
+            } finally {
+                decomp.dispose();
+            }
+            
+            StringBuilder result = new StringBuilder("{\"results\":[");
+            for (int i = 0; i < results.size(); i++) {
+                if (i > 0) result.append(",");
+                Map<String, String> r = results.get(i);
+                result.append("{\"function\":\"").append(r.get("function")).append("\",");
+                result.append("\"address\":\"").append(r.get("address")).append("\",");
+                result.append("\"lineNumber\":").append(r.get("lineNumber")).append("}");
+            }
+            result.append("],\"count\":").append(results.size()).append("}");
+            return result.toString();
+        } catch (Exception e) {
+            return "Error: " + e.getMessage();
+        }
+    }
+
+    /**
+     * Rename variables
+     */
+    private String renameVariables(String functionNameOrAddress, String variableMappingsStr) {
+        Program program = getCurrentProgram();
+        if (program == null) return "No program loaded";
+        if (functionNameOrAddress == null || variableMappingsStr == null) return "Function and variable mappings are required";
+        try {
+            Function func = resolveFunction(program, functionNameOrAddress);
+            if (func == null) return "Function not found: " + functionNameOrAddress;
+            
+            // Parse variable mappings (format: "oldName1:newName1,oldName2:newName2")
+            Map<String, String> mappings = new HashMap<>();
+            String[] pairs = variableMappingsStr.split(",");
+            for (String pair : pairs) {
+                String[] parts = pair.split(":");
+                if (parts.length == 2) {
+                    mappings.put(parts[0].trim(), parts[1].trim());
+                }
+            }
+            
+            if (mappings.isEmpty()) return "No valid variable mappings provided";
+            
+            DecompInterface decomp = new DecompInterface();
+            decomp.openProgram(program);
+            try {
+                DecompileResults results = decomp.decompileFunction(func, 30, new ConsoleTaskMonitor());
+                if (!results.decompileCompleted()) {
+                    return "Decompilation failed: " + results.getErrorMessage();
+                }
+                
+                HighFunction highFunc = results.getHighFunction();
+                if (highFunc == null) return "Could not get high-level function representation";
+                
+                int txId = program.startTransaction("Rename Variables");
+                try {
+                    LocalSymbolMap localMap = highFunc.getLocalSymbolMap();
+                    for (Map.Entry<String, String> entry : mappings.entrySet()) {
+                        HighSymbol sym = localMap.getSymbol(entry.getKey());
+                        if (sym != null) {
+                            HighVariable var = sym.getHighVariable();
+                            if (var != null) {
+                                var.setName(entry.getValue());
+                            }
+                        }
+                    }
+                    HighFunctionDBUtil.commitLocalVariablesToDatabase(highFunc, ReturnCommitOption.COMMIT_ALL, new ConsoleTaskMonitor());
+                    program.endTransaction(txId, true);
+                    return "Variables renamed successfully";
+                } catch (Exception e) {
+                    program.endTransaction(txId, false);
+                    throw e;
+                }
+            } finally {
+                decomp.dispose();
+            }
+        } catch (Exception e) {
+            return "Error: " + e.getMessage();
+        }
+    }
+
+    /**
+     * Change variable data types
+     */
+    private String changeVariableDataTypes(String functionNameOrAddress, String datatypeMappingsStr, String archiveName) {
+        Program program = getCurrentProgram();
+        if (program == null) return "No program loaded";
+        if (functionNameOrAddress == null || datatypeMappingsStr == null) return "Function and datatype mappings are required";
+        try {
+            Function func = resolveFunction(program, functionNameOrAddress);
+            if (func == null) return "Function not found: " + functionNameOrAddress;
+            
+            // Parse datatype mappings (format: "varName1:type1,varName2:type2")
+            Map<String, String> mappings = new HashMap<>();
+            String[] pairs = datatypeMappingsStr.split(",");
+            for (String pair : pairs) {
+                String[] parts = pair.split(":");
+                if (parts.length == 2) {
+                    mappings.put(parts[0].trim(), parts[1].trim());
+                }
+            }
+            
+            if (mappings.isEmpty()) return "No valid datatype mappings provided";
+            
+            DataTypeManager dtm = program.getDataTypeManager();
+            DecompInterface decomp = new DecompInterface();
+            decomp.openProgram(program);
+            try {
+                DecompileResults results = decomp.decompileFunction(func, 30, new ConsoleTaskMonitor());
+                if (!results.decompileCompleted()) {
+                    return "Decompilation failed: " + results.getErrorMessage();
+                }
+                
+                HighFunction highFunc = results.getHighFunction();
+                if (highFunc == null) return "Could not get high-level function representation";
+                
+                int txId = program.startTransaction("Change Variable Data Types");
+                try {
+                    LocalSymbolMap localMap = highFunc.getLocalSymbolMap();
+                    for (Map.Entry<String, String> entry : mappings.entrySet()) {
+                        HighSymbol sym = localMap.getSymbol(entry.getKey());
+                        if (sym != null) {
+                            DataType dataType = dtm.getDataType(entry.getValue());
+                            if (dataType == null) {
+                                ghidra.util.data.DataTypeParser parser = new ghidra.util.data.DataTypeParser(dtm, dtm, null, ghidra.util.data.DataTypeParser.AllowedDataTypes.ALL);
+                                try {
+                                    dataType = parser.parse(entry.getValue());
+                                } catch (Exception e) {
+                                    continue; // Skip invalid types
+                                }
+                            }
+                            if (dataType != null) {
+                                sym.setDataType(dataType);
+                            }
+                        }
+                    }
+                    HighFunctionDBUtil.commitLocalVariablesToDatabase(highFunc, ReturnCommitOption.COMMIT_ALL, new ConsoleTaskMonitor());
+                    program.endTransaction(txId, true);
+                    return "Variable data types changed successfully";
+                } catch (Exception e) {
+                    program.endTransaction(txId, false);
+                    throw e;
+                }
+            } finally {
+                decomp.dispose();
+            }
+        } catch (Exception e) {
+            return "Error: " + e.getMessage();
+        }
+    }
+
+    /**
+     * Get callers decompiled
+     */
+    private String getCallersDecompiled(String functionNameOrAddress, int startIndex, int maxCallers, boolean includeCallContext) {
+        Program program = getCurrentProgram();
+        if (program == null) return "No program loaded";
+        if (functionNameOrAddress == null) return "Function name or address is required";
+        try {
+            Function func = resolveFunction(program, functionNameOrAddress);
+            if (func == null) return "Function not found: " + functionNameOrAddress;
+            
+            Function[] callers = func.getCallingFunctions(new ConsoleTaskMonitor()).toArray(new Function[0]);
+            int endIndex = Math.min(startIndex + maxCallers, callers.length);
+            
+            DecompInterface decomp = new DecompInterface();
+            decomp.openProgram(program);
+            StringBuilder result = new StringBuilder("{\"callers\":[");
+            
+            try {
+                for (int i = startIndex; i < endIndex; i++) {
+                    if (i > startIndex) result.append(",");
+                    Function caller = callers[i];
+                    DecompileResults decompResults = decomp.decompileFunction(caller, 30, new ConsoleTaskMonitor());
+                    if (decompResults.decompileCompleted()) {
+                        result.append("{\"function\":\"").append(caller.getName()).append("\",");
+                        result.append("\"address\":\"").append(caller.getEntryPoint()).append("\",");
+                        if (includeCallContext) {
+                            String code = decompResults.getDecompiledFunction().getC();
+                            result.append("\"decompiledCode\":\"").append(escapeJson(code)).append("\"");
+                        }
+                        result.append("}");
+                    }
+                }
+            } finally {
+                decomp.dispose();
+            }
+            
+            result.append("],\"totalCount\":").append(callers.length).append("}");
+            return result.toString();
+        } catch (Exception e) {
+            return "Error: " + e.getMessage();
+        }
+    }
+
+    /**
+     * Get referencers decompiled
+     */
+    private String getReferencersDecompiled(String addressOrSymbol, int startIndex, int maxReferencers, boolean includeRefContext, boolean includeDataRefs) {
+        Program program = getCurrentProgram();
+        if (program == null) return "No program loaded";
+        if (addressOrSymbol == null) return "Address or symbol is required";
+        try {
+            Address addr = resolveAddressOrSymbol(program, addressOrSymbol);
+            if (addr == null) return "Invalid address or symbol: " + addressOrSymbol;
+            
+            ReferenceManager refMgr = program.getReferenceManager();
+            ReferenceIterator refIter = refMgr.getReferencesTo(addr);
+            FunctionManager funcMgr = program.getFunctionManager();
+            
+            List<Function> referencerFunctions = new ArrayList<>();
+            Set<Address> seen = new HashSet<>();
+            
+            while (refIter.hasNext()) {
+                Reference ref = refIter.next();
+                if (!includeDataRefs && ref.getReferenceType().isData()) continue;
+                Address fromAddr = ref.getFromAddress();
+                if (seen.contains(fromAddr)) continue;
+                seen.add(fromAddr);
+                
+                Function func = funcMgr.getFunctionContaining(fromAddr);
+                if (func != null && !referencerFunctions.contains(func)) {
+                    referencerFunctions.add(func);
+                }
+            }
+            
+            int endIndex = Math.min(startIndex + maxReferencers, referencerFunctions.size());
+            DecompInterface decomp = new DecompInterface();
+            decomp.openProgram(program);
+            StringBuilder result = new StringBuilder("{\"referencers\":[");
+            
+            try {
+                for (int i = startIndex; i < endIndex; i++) {
+                    if (i > startIndex) result.append(",");
+                    Function referencer = referencerFunctions.get(i);
+                    DecompileResults decompResults = decomp.decompileFunction(referencer, 30, new ConsoleTaskMonitor());
+                    if (decompResults.decompileCompleted()) {
+                        result.append("{\"function\":\"").append(referencer.getName()).append("\",");
+                        result.append("\"address\":\"").append(referencer.getEntryPoint()).append("\"");
+                        if (includeRefContext) {
+                            String code = decompResults.getDecompiledFunction().getC();
+                            result.append(",\"decompiledCode\":\"").append(escapeJson(code)).append("\"");
+                        }
+                        result.append("}");
+                    }
+                }
+            } finally {
+                decomp.dispose();
+            }
+            
+            result.append("],\"totalCount\":").append(referencerFunctions.size()).append("}");
+            return result.toString();
+        } catch (Exception e) {
+            return "Error: " + e.getMessage();
+        }
+    }
+
+    /**
+     * Helper to resolve function by name or address
+     */
+    private Function resolveFunction(Program program, String functionNameOrAddress) {
+        try {
+            // Try as address first
+            Address addr = program.getAddressFactory().getAddress(functionNameOrAddress);
+            Function func = program.getFunctionManager().getFunctionAt(addr);
+            if (func != null) return func;
+            
+            // Try as function name
+            FunctionManager funcMgr = program.getFunctionManager();
+            FunctionIterator functions = funcMgr.getFunctions(true);
+            while (functions.hasNext()) {
+                Function f = functions.next();
+                if (f.getName().equals(functionNameOrAddress)) {
+                    return f;
+                }
+            }
+        } catch (Exception e) {
+            // Not an address, try as name
+            FunctionManager funcMgr = program.getFunctionManager();
+            FunctionIterator functions = funcMgr.getFunctions(true);
+            while (functions.hasNext()) {
+                Function f = functions.next();
+                if (f.getName().equals(functionNameOrAddress)) {
+                    return f;
+                }
+            }
+        }
+        return null;
+    }
+
+    /**
+     * Helper to resolve address or symbol
+     */
+    private Address resolveAddressOrSymbol(Program program, String addressOrSymbol) {
+        try {
+            // Try as address
+            return program.getAddressFactory().getAddress(addressOrSymbol);
+        } catch (Exception e) {
+            // Try as symbol
+            SymbolTable symbolTable = program.getSymbolTable();
+            Symbol symbol = symbolTable.getSymbol(addressOrSymbol);
+            if (symbol != null) {
+                return symbol.getAddress();
+            }
+        }
+        return null;
     }
 
     @Override

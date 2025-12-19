@@ -623,6 +623,519 @@ def get_data_at_address(address: str) -> str:
         "address": address
     }))
 
+# Additional tools from reverse-engineering-assistant
+
+@mcp.tool()
+def get_function_count(filter_default_names: bool = True) -> str:
+    """
+    Get the total count of functions in the program.
+    
+    Args:
+        filter_default_names: Whether to filter out default Ghidra generated names like FUN_, DAT_, etc.
+        
+    Returns:
+        JSON with function count
+    """
+    return "\n".join(safe_get("functions/get_count", {
+        "filterDefaultNames": filter_default_names
+    }))
+
+@mcp.tool()
+def get_functions_by_similarity(search_string: str, start_index: int = 0, max_count: int = 100, filter_default_names: bool = True) -> str:
+    """
+    Get functions sorted by similarity to a given function name.
+    
+    Args:
+        search_string: Function name to compare against for similarity
+        start_index: Starting index for pagination (0-based)
+        max_count: Maximum number of functions to return
+        filter_default_names: Whether to filter out default Ghidra generated names
+        
+    Returns:
+        JSON with matching functions sorted by similarity
+    """
+    return "\n".join(safe_get("functions/get_by_similarity", {
+        "searchString": search_string,
+        "startIndex": start_index,
+        "maxCount": max_count,
+        "filterDefaultNames": filter_default_names
+    }))
+
+@mcp.tool()
+def get_undefined_function_candidates(start_index: int = 0, max_candidates: int = 100, min_reference_count: int = 1) -> str:
+    """
+    Find addresses in executable memory that are referenced but not defined as functions.
+    
+    Args:
+        start_index: Starting index for pagination (0-based)
+        max_candidates: Maximum number of candidates to return
+        min_reference_count: Minimum number of references required to be a candidate
+        
+    Returns:
+        JSON with undefined function candidates
+    """
+    return "\n".join(safe_get("functions/get_undefined_candidates", {
+        "startIndex": start_index,
+        "maxCandidates": max_candidates,
+        "minReferenceCount": min_reference_count
+    }))
+
+@mcp.tool()
+def create_function(address: str, name: str = "") -> str:
+    """
+    Create a function at an address with auto-detected signature.
+    
+    Args:
+        address: Address where the function should be created (e.g., '0x401000')
+        name: Optional name for the function. If not provided, Ghidra will generate a default name
+        
+    Returns:
+        Success or failure message
+    """
+    return safe_post("functions/create", {
+        "address": address,
+        "name": name
+    })
+
+@mcp.tool()
+def function_tags(function: str, mode: str, tags: str = "") -> str:
+    """
+    Manage function tags. Tags categorize functions (e.g., 'AI', 'rendering').
+    
+    Args:
+        function: Function name or address (required for get/set/add/remove modes)
+        mode: Operation: 'get' (tags on function), 'set' (replace), 'add', 'remove', 'list' (all tags in program)
+        tags: Tag names (required for add; optional for set/remove). Comma-separated.
+        
+    Returns:
+        JSON with tag information or success message
+    """
+    return safe_post("functions/tags", {
+        "function": function,
+        "mode": mode,
+        "tags": tags
+    })
+
+@mcp.tool()
+def get_strings_by_similarity(search_string: str, start_index: int = 0, max_count: int = 100, include_referencing_functions: bool = False) -> str:
+    """
+    Get strings sorted by similarity to a given string.
+    
+    Args:
+        search_string: String to compare against for similarity
+        start_index: Starting index for pagination (0-based)
+        max_count: Maximum number of strings to return
+        include_referencing_functions: Include list of functions that reference each string
+        
+    Returns:
+        JSON with matching strings sorted by similarity
+    """
+    return "\n".join(safe_get("strings/get_by_similarity", {
+        "searchString": search_string,
+        "startIndex": start_index,
+        "maxCount": max_count,
+        "includeReferencingFunctions": include_referencing_functions
+    }))
+
+@mcp.tool()
+def set_comment(address_or_symbol: str, comment: str, comment_type: str = "eol") -> str:
+    """
+    Set or update a comment at a specific address.
+    
+    Args:
+        address_or_symbol: Address or symbol name where to set the comment
+        comment: The comment text to set
+        comment_type: Type of comment: 'pre', 'eol', 'post', 'plate', or 'repeatable'
+        
+    Returns:
+        Success or failure message
+    """
+    return safe_post("comments/set", {
+        "addressOrSymbol": address_or_symbol,
+        "comment": comment,
+        "commentType": comment_type
+    })
+
+@mcp.tool()
+def get_comments(address_or_symbol: str = "", start: str = "", end: str = "", comment_types: str = "") -> str:
+    """
+    Get comments at a specific address or within an address range.
+    
+    Args:
+        address_or_symbol: Address or symbol name to get comments from (optional if using start/end)
+        start: Start address of the range
+        end: End address of the range
+        comment_types: Types of comments to retrieve (comma-separated: pre,eol,post,plate,repeatable)
+        
+    Returns:
+        JSON with comments
+    """
+    params = {}
+    if address_or_symbol:
+        params["addressOrSymbol"] = address_or_symbol
+    if start:
+        params["start"] = start
+    if end:
+        params["end"] = end
+    if comment_types:
+        params["commentTypes"] = comment_types
+    return "\n".join(safe_get("comments/get", params))
+
+@mcp.tool()
+def remove_comment(address_or_symbol: str, comment_type: str) -> str:
+    """
+    Remove a specific comment at an address.
+    
+    Args:
+        address_or_symbol: Address or symbol name where to remove the comment
+        comment_type: Type of comment to remove: 'pre', 'eol', 'post', 'plate', or 'repeatable'
+        
+    Returns:
+        Success or failure message
+    """
+    return safe_post("comments/remove", {
+        "addressOrSymbol": address_or_symbol,
+        "commentType": comment_type
+    })
+
+@mcp.tool()
+def search_comments(search_text: str, case_sensitive: bool = False, comment_types: str = "", max_results: int = 100) -> str:
+    """
+    Search for comments containing specific text.
+    
+    Args:
+        search_text: Text to search for in comments
+        case_sensitive: Whether search is case sensitive
+        comment_types: Types of comments to search (comma-separated: pre,eol,post,plate,repeatable)
+        max_results: Maximum number of results to return
+        
+    Returns:
+        JSON with matching comments
+    """
+    params = {
+        "searchText": search_text,
+        "caseSensitive": case_sensitive,
+        "maxResults": max_results
+    }
+    if comment_types:
+        params["commentTypes"] = comment_types
+    return "\n".join(safe_get("comments/search", params))
+
+@mcp.tool()
+def apply_data_type(address_or_symbol: str, data_type_string: str, archive_name: str = "") -> str:
+    """
+    Apply a data type to a specific address or symbol in a program.
+    
+    Args:
+        address_or_symbol: Address or symbol name to apply the data type to
+        data_type_string: String representation of the data type (e.g., 'char**', 'int[10]')
+        archive_name: Optional name of the data type archive to search in
+        
+    Returns:
+        Success or failure message
+    """
+    return safe_post("data/apply_data_type", {
+        "addressOrSymbol": address_or_symbol,
+        "dataTypeString": data_type_string,
+        "archiveName": archive_name
+    })
+
+@mcp.tool()
+def get_symbols_count(include_external: bool = False, filter_default_names: bool = True) -> str:
+    """
+    Get the total count of symbols in the program.
+    
+    Args:
+        include_external: Whether to include external symbols in the count
+        filter_default_names: Whether to filter out default Ghidra generated names
+        
+    Returns:
+        JSON with symbol count
+    """
+    return "\n".join(safe_get("symbols/get_count", {
+        "includeExternal": include_external,
+        "filterDefaultNames": filter_default_names
+    }))
+
+@mcp.tool()
+def get_symbols(include_external: bool = False, start_index: int = 0, max_count: int = 200, filter_default_names: bool = True) -> str:
+    """
+    Get symbols from the selected program with pagination.
+    
+    Args:
+        include_external: Whether to include external symbols in the result
+        start_index: Starting index for pagination (0-based)
+        max_count: Maximum number of symbols to return
+        filter_default_names: Whether to filter out default Ghidra generated names
+        
+    Returns:
+        JSON with symbols
+    """
+    return "\n".join(safe_get("symbols/get", {
+        "includeExternal": include_external,
+        "startIndex": start_index,
+        "maxCount": max_count,
+        "filterDefaultNames": filter_default_names
+    }))
+
+@mcp.tool()
+def find_import_references(import_name: str, library_name: str = "", max_results: int = 100) -> str:
+    """
+    Find all locations where a specific imported function is called.
+    
+    Args:
+        import_name: Name of the imported function to find references for (case-insensitive)
+        library_name: Optional specific library name to narrow search (case-insensitive)
+        max_results: Maximum number of references to return
+        
+    Returns:
+        JSON with references to the imported function
+    """
+    params = {
+        "importName": import_name,
+        "maxResults": max_results
+    }
+    if library_name:
+        params["libraryName"] = library_name
+    return "\n".join(safe_get("imports/find_references", params))
+
+@mcp.tool()
+def resolve_thunk(address: str) -> str:
+    """
+    Follow a thunk chain to find the actual target function.
+    
+    Args:
+        address: Address of the thunk or jump stub to resolve
+        
+    Returns:
+        JSON with thunk chain information
+    """
+    return "\n".join(safe_get("imports/resolve_thunk", {
+        "address": address
+    }))
+
+@mcp.tool()
+def get_call_tree(function_address: str, direction: str = "callees", max_depth: int = 3) -> str:
+    """
+    Get a hierarchical call tree starting from a function.
+    
+    Args:
+        function_address: Address or name of the function to analyze
+        direction: Direction to traverse: 'callers' (who calls this) or 'callees' (what this calls)
+        max_depth: Maximum depth to traverse (default: 3, max: 10)
+        
+    Returns:
+        Call tree as formatted text
+    """
+    return "\n".join(safe_get("callgraph/get_tree", {
+        "functionAddress": function_address,
+        "direction": direction,
+        "maxDepth": max_depth
+    }))
+
+@mcp.tool()
+def find_common_callers(function_addresses: str) -> str:
+    """
+    Find functions that call ALL of the specified target functions.
+    
+    Args:
+        function_addresses: Comma-separated list of function addresses or names
+        
+    Returns:
+        List of common callers
+    """
+    return safe_post("callgraph/find_common_callers", {
+        "functionAddresses": function_addresses
+    })
+
+@mcp.tool()
+def list_common_constants(include_small_values: bool = False, min_value: str = "", top_n: int = 50) -> str:
+    """
+    Find the most frequently used constant values in the program.
+    
+    Args:
+        include_small_values: Include small values (0-255) which are often noise
+        min_value: Optional minimum value to consider (filters out small constants)
+        top_n: Number of most common constants to return
+        
+    Returns:
+        JSON with most common constants
+    """
+    params = {
+        "includeSmallValues": include_small_values,
+        "topN": top_n
+    }
+    if min_value:
+        params["minValue"] = min_value
+    return "\n".join(safe_get("constants/list_common", params))
+
+@mcp.tool()
+def find_variable_accesses(function_address: str, variable_name: str) -> str:
+    """
+    Find all reads and writes to a variable within a function.
+    
+    Args:
+        function_address: Address of the function to analyze
+        variable_name: Name of the variable to find accesses for
+        
+    Returns:
+        List of variable accesses
+    """
+    return "\n".join(safe_get("dataflow/find_variable_accesses", {
+        "functionAddress": function_address,
+        "variableName": variable_name
+    }))
+
+@mcp.tool()
+def find_vtables_containing_function(function_address: str) -> str:
+    """
+    Find all vtables that contain a pointer to the given function.
+    
+    Args:
+        function_address: Address or name of the function to search for in vtables
+        
+    Returns:
+        JSON with vtables containing the function
+    """
+    return "\n".join(safe_get("vtable/find_containing_function", {
+        "functionAddress": function_address
+    }))
+
+@mcp.tool()
+def remove_bookmark(address_or_symbol: str, type: str, category: str = "") -> str:
+    """
+    Remove a bookmark at a specific address.
+    
+    Args:
+        address_or_symbol: Address or symbol name where to remove the bookmark
+        type: Bookmark type (e.g. 'Note', 'Warning', 'TODO', 'Bug', 'Analysis')
+        category: Bookmark category for organizing bookmarks (optional)
+        
+    Returns:
+        Success or failure message
+    """
+    return safe_post("bookmarks/remove", {
+        "addressOrSymbol": address_or_symbol,
+        "type": type,
+        "category": category
+    })
+
+@mcp.tool()
+def list_bookmark_categories(type: str = "Note") -> str:
+    """
+    List all categories for a given bookmark type.
+    
+    Args:
+        type: Bookmark type to get categories for
+        
+    Returns:
+        JSON with bookmark categories
+    """
+    return "\n".join(safe_get("bookmarks/list_categories", {
+        "type": type
+    }))
+
+@mcp.tool()
+def search_decompilation(pattern: str, case_sensitive: bool = False, max_results: int = 50, override_max_functions_limit: bool = False) -> str:
+    """
+    Search for patterns across all function decompilations in a program.
+    
+    Args:
+        pattern: Regular expression pattern to search for in decompiled functions
+        case_sensitive: Whether the search should be case sensitive
+        max_results: Maximum number of search results to return
+        override_max_functions_limit: Whether to override the maximum function limit for decompiler searches
+        
+    Returns:
+        JSON with search results
+    """
+    return "\n".join(safe_get("decompiler/search", {
+        "pattern": pattern,
+        "caseSensitive": case_sensitive,
+        "maxResults": max_results,
+        "overrideMaxFunctionsLimit": override_max_functions_limit
+    }))
+
+@mcp.tool()
+def rename_variables(function_name_or_address: str, variable_mappings: str) -> str:
+    """
+    Rename variables in a decompiled function.
+    
+    Args:
+        function_name_or_address: Function name, address, or symbol to rename variables in
+        variable_mappings: Mapping of old variable names to new variable names (format: "oldName1:newName1,oldName2:newName2")
+        
+    Returns:
+        Success or failure message
+    """
+    return safe_post("decompiler/rename_variables", {
+        "functionNameOrAddress": function_name_or_address,
+        "variableMappings": variable_mappings
+    })
+
+@mcp.tool()
+def change_variable_datatypes(function_name_or_address: str, datatype_mappings: str, archive_name: str = "") -> str:
+    """
+    Change data types of variables in a decompiled function.
+    
+    Args:
+        function_name_or_address: Function name, address, or symbol to change variable data types in
+        datatype_mappings: Mapping of variable names to new data type strings (format: "varName1:type1,varName2:type2")
+        archive_name: Optional name of the data type archive to search for data types
+        
+    Returns:
+        Success or failure message
+    """
+    return safe_post("decompiler/change_variable_datatypes", {
+        "functionNameOrAddress": function_name_or_address,
+        "datatypeMappings": datatype_mappings,
+        "archiveName": archive_name
+    })
+
+@mcp.tool()
+def get_callers_decompiled(function_name_or_address: str, start_index: int = 0, max_callers: int = 10, include_call_context: bool = True) -> str:
+    """
+    Decompile all functions that call a target function.
+    
+    Args:
+        function_name_or_address: Target function name or address to find callers for
+        start_index: Starting index for pagination (0-based)
+        max_callers: Maximum number of calling functions to decompile
+        include_call_context: Whether to highlight the line containing the call in each decompilation
+        
+    Returns:
+        JSON with decompiled callers
+    """
+    return "\n".join(safe_get("decompiler/get_callers_decompiled", {
+        "functionNameOrAddress": function_name_or_address,
+        "startIndex": start_index,
+        "maxCallers": max_callers,
+        "includeCallContext": include_call_context
+    }))
+
+@mcp.tool()
+def get_referencers_decompiled(address_or_symbol: str, start_index: int = 0, max_referencers: int = 10, include_ref_context: bool = True, include_data_refs: bool = True) -> str:
+    """
+    Decompile all functions that reference a specific address or symbol.
+    
+    Args:
+        address_or_symbol: Target address or symbol name to find references to
+        start_index: Starting index for pagination (0-based)
+        max_referencers: Maximum number of referencing functions to decompile
+        include_ref_context: Whether to include reference line numbers in decompilation
+        include_data_refs: Whether to include data references (reads/writes), not just calls
+        
+    Returns:
+        JSON with decompiled referencers
+    """
+    return "\n".join(safe_get("decompiler/get_referencers_decompiled", {
+        "addressOrSymbol": address_or_symbol,
+        "startIndex": start_index,
+        "maxReferencers": max_referencers,
+        "includeRefContext": include_ref_context,
+        "includeDataRefs": include_data_refs
+    }))
+
 def main():
     parser = argparse.ArgumentParser(description="MCP server for Ghidra")
     parser.add_argument("--ghidra-server", type=str, default=DEFAULT_GHIDRA_SERVER,

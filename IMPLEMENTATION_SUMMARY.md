@@ -7,6 +7,7 @@ This document summarizes the comprehensive implementation of reverse engineering
 ## Implementation Approach
 
 All new functionality was implemented by:
+
 - Adding HTTP endpoints in `GhidraMCPPlugin.java` using the existing `server.createContext()` pattern
 - Adding corresponding helper methods in the same file
 - Creating MCP tool wrappers in `bridge_mcp_ghidra.py` using the existing `@mcp.tool()` decorator pattern
@@ -80,6 +81,7 @@ All new functionality was implemented by:
 ## Tools Not Implemented
 
 The following were omitted as they cannot be implemented using only the existing infrastructure:
+
 - Structure parsing/creation tools (require C parser)
 - Project management tools (require Ghidra project APIs)
 - Function tagging (requires additional data structures)
@@ -88,4 +90,3 @@ The following were omitted as they cannot be implemented using only the existing
 ## Usage
 
 All tools are accessible via the Python MCP bridge at `http://localhost:8080/` (default)
-
