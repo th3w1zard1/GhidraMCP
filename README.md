@@ -13,6 +13,8 @@
 
 GhidraMCP is a Model Context Protocol (MCP) server that enables AI language models to autonomously reverse engineer applications using Ghidra's powerful analysis capabilities. It exposes 39 comprehensive tools covering decompilation, call graphs, data flow analysis, vtable detection, and much more.
 
+https://github.com/user-attachments/assets/36080514-f227-44bd-af84-78e29ee1d7f9
+
 ## ❌ The Problem: Manual Reverse Engineering is Slow
 
 - Time-consuming manual analysis of binaries
@@ -61,7 +63,7 @@ Analyze the main function and trace where user input flows. Use GhidraMCP tools.
 
 **Video Installation Guide:**
 
-https://github.com/user-attachments/assets/75f0c176-6da1-48dc-ad96-c182eb4648c3
+<https://github.com/user-attachments/assets/75f0c176-6da1-48dc-ad96-c182eb4648c3>
 
 ### Step 2: Install Python Dependencies
 
@@ -113,6 +115,7 @@ The `--ghidra-server` argument should point to your Ghidra HTTP server (default:
 Add this to your Claude Desktop `claude_desktop_config.json` file. See [Claude Desktop MCP docs](https://modelcontextprotocol.io/quickstart/user) for more info.
 
 **Location:**
+
 - macOS: `~/Library/Application Support/Claude/claude_desktop_config.json`
 - Windows: `%APPDATA%\Claude\claude_desktop_config.json`
 - Linux: `~/.config/Claude/claude_desktop_config.json`
@@ -214,11 +217,14 @@ python bridge_mcp_ghidra.py --transport sse --mcp-host 127.0.0.1 --mcp-port 8081
 ```
 
 Then in Cline:
+
 1. Select `MCP Servers` at the top
 2. Select `Remote Servers`
 3. Add:
    - Server Name: `GhidraMCP`
    - Server URL: `http://127.0.0.1:8081/sse`
+
+![Cline select](https://github.com/user-attachments/assets/88e1f336-4729-46ee-9b81-53271e9c0ce0)
 
 </details>
 
@@ -545,6 +551,7 @@ Analyze the vtable at 0x405000 and find all potential callers of the virtual met
 **Error:** `Request failed: Connection refused` or `Failed to connect to Ghidra server`
 
 **Solution:**
+
 1. Ensure Ghidra is running with a project open
 2. Verify the GhidraMCPPlugin is enabled: `File` -> `Configure` -> `Developer` -> Check `GhidraMCPPlugin`
 3. Check the server port in `Edit` -> `Tool Options` -> `GhidraMCP HTTP Server` (default: 8080)
@@ -559,11 +566,13 @@ Analyze the vtable at 0x405000 and find all potential callers of the virtual met
 **Error:** `ModuleNotFoundError: No module named 'mcp'` or `No module named 'requests'`
 
 **Solution:**
+
 ```bash
 pip install requests mcp
 ```
 
 Or install from requirements:
+
 ```bash
 pip install -r requirements.txt
 ```
@@ -576,6 +585,7 @@ pip install -r requirements.txt
 **Error:** `python: command not found` or `python3: command not found`
 
 **Solution:**
+
 - Use `python3` instead of `python` in your MCP config
 - Or use the full path to Python: `/usr/bin/python3` or `C:\Python310\python.exe`
 - On Windows, try `py` or `py -3`
@@ -588,6 +598,7 @@ pip install -r requirements.txt
 **Error:** `No such file or directory: bridge_mcp_ghidra.py`
 
 **Solution:**
+
 - Use the absolute path to `bridge_mcp_ghidra.py` in your MCP config
 - On Windows, use forward slashes or escaped backslashes: `C:/path/to/bridge_mcp_ghidra.py`
 - Verify the file exists at the specified path
@@ -600,6 +611,7 @@ pip install -r requirements.txt
 **Error:** `Port 8080 is already in use`
 
 **Solution:**
+
 1. Change the Ghidra server port: `Edit` -> `Tool Options` -> `GhidraMCP HTTP Server` -> Set custom port
 2. Update your MCP config `--ghidra-server` argument to match the new port
 3. Or stop the process using port 8080
@@ -612,6 +624,7 @@ pip install -r requirements.txt
 **Error:** `No program loaded` responses from tools
 
 **Solution:**
+
 1. Open a program in Ghidra: `File` -> `New Project` or `File` -> `Import File`
 2. Wait for analysis to complete (if auto-analysis is enabled)
 3. Ensure the program is open in the active Code Browser window
@@ -624,6 +637,7 @@ pip install -r requirements.txt
 **Error:** SSE connection fails or times out
 
 **Solution:**
+
 1. Ensure the bridge is running with `--transport sse` flag
 2. Verify the `--mcp-port` matches the URL in Cline (default: 8081)
 3. Check firewall settings allow connections on the specified port
@@ -657,6 +671,7 @@ To build the Ghidra plugin from source:
    - `Ghidra/Framework/Gui/lib/Gui.jar`
 
 2. **Build with Maven:**
+
    ```bash
    mvn clean package assembly:single
    ```
