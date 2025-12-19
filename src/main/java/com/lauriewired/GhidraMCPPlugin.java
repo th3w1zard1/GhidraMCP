@@ -737,6 +737,64 @@ public class GhidraMCPPlugin extends Plugin {
             sendResponse(exchange, getDataTypeByString(dataTypeString, archiveName));
         });
 
+        // Import/Export tools
+        server.createContext("/imports/list", exchange -> {
+            Map<String, String> qparams = parseQueryParams(exchange);
+            String libraryFilter = qparams.get("libraryFilter");
+            int maxResults = parseIntOrDefault(qparams.get("maxResults"), 500);
+            int startIndex = parseIntOrDefault(qparams.get("startIndex"), 0);
+            boolean groupByLibrary = Boolean.parseBoolean(qparams.getOrDefault("groupByLibrary", "true"));
+            sendResponse(exchange, listImportsEnhanced(libraryFilter, maxResults, startIndex, groupByLibrary));
+        });
+
+        server.createContext("/exports/list", exchange -> {
+            Map<String, String> qparams = parseQueryParams(exchange);
+            int maxResults = parseIntOrDefault(qparams.get("maxResults"), 500);
+            int startIndex = parseIntOrDefault(qparams.get("startIndex"), 0);
+            sendResponse(exchange, listExportsEnhanced(maxResults, startIndex));
+        });
+
+        // Enhanced string tools
+        server.createContext("/strings/get", exchange -> {
+            Map<String, String> qparams = parseQueryParams(exchange);
+            int startIndex = parseIntOrDefault(qparams.get("startIndex"), 0);
+            int maxCount = parseIntOrDefault(qparams.get("maxCount"), 100);
+            boolean includeReferencingFunctions = Boolean.parseBoolean(qparams.getOrDefault("includeReferencingFunctions", "false"));
+            sendResponse(exchange, getStringsEnhanced(startIndex, maxCount, includeReferencingFunctions));
+        });
+
+        // Enhanced decompiler tools
+        server.createContext("/decompiler/get_decompilation", exchange -> {
+            Map<String, String> qparams = parseQueryParams(exchange);
+            String functionNameOrAddress = qparams.get("functionNameOrAddress");
+            int offset = parseIntOrDefault(qparams.get("offset"), 1);
+            int limit = parseIntOrDefault(qparams.get("limit"), 50);
+            boolean includeCallers = Boolean.parseBoolean(qparams.getOrDefault("includeCallers", "false"));
+            boolean includeCallees = Boolean.parseBoolean(qparams.getOrDefault("includeCallees", "false"));
+            boolean includeComments = Boolean.parseBoolean(qparams.getOrDefault("includeComments", "false"));
+            boolean includeIncomingReferences = Boolean.parseBoolean(qparams.getOrDefault("includeIncomingReferences", "true"));
+            boolean includeReferenceContext = Boolean.parseBoolean(qparams.getOrDefault("includeReferenceContext", "true"));
+            sendResponse(exchange, getDecompilationEnhanced(functionNameOrAddress, offset, limit, includeCallers, includeCallees, includeComments, includeIncomingReferences, includeReferenceContext));
+        });
+
+        server.createContext("/decompiler/set_decompilation_comment", exchange -> {
+            Map<String, String> params = parsePostParams(exchange);
+            String functionNameOrAddress = params.get("functionNameOrAddress");
+            int lineNumber = parseIntOrDefault(params.get("lineNumber"), 1);
+            String comment = params.get("comment");
+            String commentType = params.getOrDefault("commentType", "eol");
+            sendResponse(exchange, setDecompilationCommentEnhanced(functionNameOrAddress, lineNumber, comment, commentType));
+        });
+
+        // Enhanced callgraph tools
+        server.createContext("/callgraph/get_tree", exchange -> {
+            Map<String, String> qparams = parseQueryParams(exchange);
+            String functionAddress = qparams.get("functionAddress");
+            String direction = qparams.getOrDefault("direction", "callees");
+            int maxDepth = parseIntOrDefault(qparams.get("maxDepth"), 3);
+            sendResponse(exchange, getCallTreeEnhanced(functionAddress, direction, maxDepth));
+        });
+
         server.setExecutor(null);
         new Thread(() -> {
             try {
@@ -4597,6 +4655,433 @@ public class GhidraMCPPlugin extends Plugin {
         } catch (Exception e) {
             return "Error: " + e.getMessage();
         }
+    }
+
+    /**
+     * List imports with pagination and optional grouping (enhanced version)
+     */
+    private String listImportsEnhanced(String libraryFilter, int maxResults, int startIndex, boolean groupByLibrary) {
+        Program program = getCurrentProgram();
+        if (program == null) return "No program loaded";
+        try {
+            List<Map<String, Object>> imports = new ArrayList<>();
+            SymbolTable symbolTable = program.getSymbolTable();
+            SymbolIterator externalSymbols = symbolTable.getExternalSymbols();
+            
+            while (externalSymbols.hasNext()) {
+                Symbol symbol = externalSymbols.next();
+                if (symbol.getSymbolType() != SymbolType.FUNCTION) continue;
+                
+                String libraryName = symbol.getParentNamespace().getName();
+                if (libraryFilter != null && !libraryName.toLowerCase().contains(libraryFilter.toLowerCase())) {
+                    continue;
+                }
+                
+                Map<String, Object> importInfo = new HashMap<>();
+                importInfo.put("name", symbol.getName());
+                importInfo.put("address", symbol.getAddress().toString());
+                importInfo.put("library", libraryName);
+                imports.add(importInfo);
+            }
+            
+            int endIndex = Math.min(startIndex + maxResults, imports.size());
+            List<Map<String, Object>> paginated = startIndex < imports.size() 
+                ? imports.subList(startIndex, endIndex) 
+                : new ArrayList<>();
+            
+            StringBuilder result = new StringBuilder("{\"totalCount\":").append(imports.size()).append(",");
+            result.append("\"startIndex\":").append(startIndex).append(",");
+            result.append("\"returnedCount\":").append(paginated.size()).append(",");
+            
+            if (groupByLibrary) {
+                Map<String, List<Map<String, Object>>> grouped = new HashMap<>();
+                for (Map<String, Object> imp : paginated) {
+                    String lib = (String) imp.get("library");
+                    grouped.computeIfAbsent(lib, k -> new ArrayList<>()).add(imp);
+                }
+                result.append("\"libraries\":{");
+                boolean first = true;
+                for (Map.Entry<String, List<Map<String, Object>>> entry : grouped.entrySet()) {
+                    if (!first) result.append(",");
+                    first = false;
+                    result.append("\"").append(entry.getKey()).append("\":[");
+                    for (int i = 0; i < entry.getValue().size(); i++) {
+                        if (i > 0) result.append(",");
+                        Map<String, Object> imp = entry.getValue().get(i);
+                        result.append("{\"name\":\"").append(imp.get("name")).append("\",");
+                        result.append("\"address\":\"").append(imp.get("address")).append("\"}");
+                    }
+                    result.append("]");
+                }
+                result.append("}");
+            } else {
+                result.append("\"imports\":[");
+                for (int i = 0; i < paginated.size(); i++) {
+                    if (i > 0) result.append(",");
+                    Map<String, Object> imp = paginated.get(i);
+                    result.append("{\"name\":\"").append(imp.get("name")).append("\",");
+                    result.append("\"address\":\"").append(imp.get("address")).append("\",");
+                    result.append("\"library\":\"").append(imp.get("library")).append("\"}");
+                }
+                result.append("]");
+            }
+            result.append("}");
+            return result.toString();
+        } catch (Exception e) {
+            return "Error: " + e.getMessage();
+        }
+    }
+
+    /**
+     * List exports with pagination (enhanced version)
+     */
+    private String listExportsEnhanced(int maxResults, int startIndex) {
+        Program program = getCurrentProgram();
+        if (program == null) return "No program loaded";
+        try {
+            List<Map<String, Object>> exports = new ArrayList<>();
+            SymbolTable symbolTable = program.getSymbolTable();
+            SymbolIterator externalSymbols = symbolTable.getExternalSymbols();
+            
+            // Also check for exported symbols in the global namespace
+            SymbolIterator globalSymbols = symbolTable.getSymbols(GlobalNamespace.GLOBAL_NAMESPACE_ID);
+            Set<String> seen = new HashSet<>();
+            
+            while (globalSymbols.hasNext()) {
+                Symbol symbol = globalSymbols.next();
+                if (symbol.getSymbolType() == SymbolType.FUNCTION || symbol.getSymbolType() == SymbolType.LABEL) {
+                    String name = symbol.getName();
+                    if (!seen.contains(name)) {
+                        seen.add(name);
+                        Map<String, Object> exportInfo = new HashMap<>();
+                        exportInfo.put("name", name);
+                        exportInfo.put("address", symbol.getAddress().toString());
+                        exportInfo.put("type", symbol.getSymbolType().toString());
+                        exports.add(exportInfo);
+                    }
+                }
+            }
+            
+            int endIndex = Math.min(startIndex + maxResults, exports.size());
+            List<Map<String, Object>> paginated = startIndex < exports.size() 
+                ? exports.subList(startIndex, endIndex) 
+                : new ArrayList<>();
+            
+            StringBuilder result = new StringBuilder("{\"totalCount\":").append(exports.size()).append(",");
+            result.append("\"startIndex\":").append(startIndex).append(",");
+            result.append("\"returnedCount\":").append(paginated.size()).append(",");
+            result.append("\"exports\":[");
+            for (int i = 0; i < paginated.size(); i++) {
+                if (i > 0) result.append(",");
+                Map<String, Object> exp = paginated.get(i);
+                result.append("{\"name\":\"").append(exp.get("name")).append("\",");
+                result.append("\"address\":\"").append(exp.get("address")).append("\",");
+                result.append("\"type\":\"").append(exp.get("type")).append("\"}");
+            }
+            result.append("]}");
+            return result.toString();
+        } catch (Exception e) {
+            return "Error: " + e.getMessage();
+        }
+    }
+
+    /**
+     * Get strings with pagination (enhanced version)
+     */
+    private String getStringsEnhanced(int startIndex, int maxCount, boolean includeReferencingFunctions) {
+        Program program = getCurrentProgram();
+        if (program == null) return "No program loaded";
+        try {
+            List<Map<String, Object>> strings = new ArrayList<>();
+            DataIterator dataIterator = program.getListing().getDefinedData(true);
+            int currentIndex = 0;
+            
+            for (Data data : dataIterator) {
+                if (!(data.getValue() instanceof String)) continue;
+                
+                if (currentIndex++ < startIndex) continue;
+                if (strings.size() >= maxCount) break;
+                
+                Map<String, Object> stringInfo = new HashMap<>();
+                stringInfo.put("address", data.getAddress().toString());
+                stringInfo.put("value", data.getValue().toString());
+                stringInfo.put("length", data.getLength());
+                
+                if (includeReferencingFunctions) {
+                    List<String> refFunctions = new ArrayList<>();
+                    ReferenceManager refMgr = program.getReferenceManager();
+                    ReferenceIterator refs = refMgr.getReferencesTo(data.getAddress());
+                    int refCount = 0;
+                    while (refs.hasNext() && refCount < 100) {
+                        Reference ref = refs.next();
+                        Function func = program.getFunctionManager().getFunctionContaining(ref.getFromAddress());
+                        if (func != null) {
+                            String funcName = func.getName();
+                            if (!refFunctions.contains(funcName)) {
+                                refFunctions.add(funcName);
+                                refCount++;
+                            }
+                        }
+                    }
+                    stringInfo.put("referencingFunctions", refFunctions);
+                }
+                
+                strings.add(stringInfo);
+            }
+            
+            StringBuilder result = new StringBuilder("{\"startIndex\":").append(startIndex).append(",");
+            result.append("\"requestedCount\":").append(maxCount).append(",");
+            result.append("\"actualCount\":").append(strings.size()).append(",");
+            result.append("\"nextStartIndex\":").append(startIndex + strings.size()).append(",");
+            result.append("\"strings\":[");
+            for (int i = 0; i < strings.size(); i++) {
+                if (i > 0) result.append(",");
+                Map<String, Object> str = strings.get(i);
+                result.append("{\"address\":\"").append(str.get("address")).append("\",");
+                result.append("\"value\":\"").append(escapeJsonString((String) str.get("value"))).append("\",");
+                result.append("\"length\":").append(str.get("length"));
+                if (includeReferencingFunctions && str.containsKey("referencingFunctions")) {
+                    result.append(",\"referencingFunctions\":[");
+                    @SuppressWarnings("unchecked")
+                    List<String> refs = (List<String>) str.get("referencingFunctions");
+                    for (int j = 0; j < refs.size(); j++) {
+                        if (j > 0) result.append(",");
+                        result.append("\"").append(refs.get(j)).append("\"");
+                    }
+                    result.append("]");
+                }
+                result.append("}");
+            }
+            result.append("]}");
+            return result.toString();
+        } catch (Exception e) {
+            return "Error: " + e.getMessage();
+        }
+    }
+
+    /**
+     * Escape JSON string (helper method)
+     */
+    private String escapeJsonString(String str) {
+        if (str == null) return "";
+        return str.replace("\\", "\\\\").replace("\"", "\\\"").replace("\n", "\\n").replace("\r", "\\r").replace("\t", "\\t");
+    }
+
+    /**
+     * Get decompilation with line range support (enhanced version)
+     */
+    private String getDecompilationEnhanced(String functionNameOrAddress, int offset, int limit, 
+            boolean includeCallers, boolean includeCallees, boolean includeComments,
+            boolean includeIncomingReferences, boolean includeReferenceContext) {
+        Program program = getCurrentProgram();
+        if (program == null) return "No program loaded";
+        try {
+            Function function = null;
+            if (functionNameOrAddress != null && !functionNameOrAddress.isEmpty()) {
+                try {
+                    Address addr = program.getAddressFactory().getAddress(functionNameOrAddress);
+                    function = program.getFunctionManager().getFunctionAt(addr);
+                } catch (Exception e) {
+                    function = program.getFunctionManager().getFunction(functionNameOrAddress);
+                }
+            }
+            
+            if (function == null) {
+                return "Function not found: " + functionNameOrAddress;
+            }
+            
+            DecompInterface decompiler = new DecompInterface();
+            decompiler.openProgram(program);
+            DecompileResults results = decompiler.decompileFunction(function, 30, null);
+            
+            if (results == null || !results.decompileCompleted()) {
+                return "Decompilation failed for function: " + function.getName();
+            }
+            
+            String decompiledCode = results.getDecompiledFunction().getC();
+            String[] lines = decompiledCode.split("\n");
+            
+            int startLine = Math.max(0, offset - 1);
+            int endLine = Math.min(lines.length, startLine + limit);
+            
+            StringBuilder result = new StringBuilder("{\"function\":\"").append(function.getName()).append("\",");
+            result.append("\"address\":\"").append(function.getEntryPoint().toString()).append("\",");
+            result.append("\"totalLines\":").append(lines.length).append(",");
+            result.append("\"offset\":").append(offset).append(",");
+            result.append("\"limit\":").append(limit).append(",");
+            result.append("\"code\":\"");
+            for (int i = startLine; i < endLine; i++) {
+                if (i > startLine) result.append("\\n");
+                result.append(escapeJsonString(lines[i]));
+            }
+            result.append("\"");
+            
+            if (includeCallers) {
+                List<String> callers = new ArrayList<>();
+                Function[] callingFunctions = function.getCallingFunctions(TaskMonitor.DUMMY);
+                for (Function caller : callingFunctions) {
+                    callers.add(caller.getName() + " (" + caller.getEntryPoint().toString() + ")");
+                }
+                result.append(",\"callers\":[");
+                for (int i = 0; i < callers.size(); i++) {
+                    if (i > 0) result.append(",");
+                    result.append("\"").append(callers.get(i)).append("\"");
+                }
+                result.append("]");
+            }
+            
+            if (includeCallees) {
+                List<String> callees = new ArrayList<>();
+                Function[] calledFunctions = function.getCalledFunctions(TaskMonitor.DUMMY);
+                for (Function callee : calledFunctions) {
+                    callees.add(callee.getName() + " (" + callee.getEntryPoint().toString() + ")");
+                }
+                result.append(",\"callees\":[");
+                for (int i = 0; i < callees.size(); i++) {
+                    if (i > 0) result.append(",");
+                    result.append("\"").append(callees.get(i)).append("\"");
+                }
+                result.append("]");
+            }
+            
+            result.append("}");
+            return result.toString();
+        } catch (Exception e) {
+            return "Error: " + e.getMessage();
+        }
+    }
+
+    /**
+     * Set decompilation comment (enhanced version)
+     */
+    private String setDecompilationCommentEnhanced(String functionNameOrAddress, int lineNumber, String comment, String commentType) {
+        Program program = getCurrentProgram();
+        if (program == null) return "No program loaded";
+        try {
+            Function function = null;
+            if (functionNameOrAddress != null && !functionNameOrAddress.isEmpty()) {
+                try {
+                    Address addr = program.getAddressFactory().getAddress(functionNameOrAddress);
+                    function = program.getFunctionManager().getFunctionAt(addr);
+                } catch (Exception e) {
+                    function = program.getFunctionManager().getFunction(functionNameOrAddress);
+                }
+            }
+            
+            if (function == null) {
+                return "Function not found: " + functionNameOrAddress;
+            }
+            
+            // This is a simplified implementation - full implementation would need to map line numbers to addresses
+            int txId = program.startTransaction("Set decompilation comment");
+            try {
+                // For now, set comment at function entry point
+                program.getListing().setComment(function.getEntryPoint(), 
+                    "pre".equals(commentType) ? CodeUnit.PRE_COMMENT : CodeUnit.EOL_COMMENT, comment);
+                program.endTransaction(txId, true);
+                return "{\"success\":true,\"message\":\"Comment set at function entry point\"}";
+            } catch (Exception e) {
+                program.endTransaction(txId, false);
+                return "Error: " + e.getMessage();
+            }
+        } catch (Exception e) {
+            return "Error: " + e.getMessage();
+        }
+    }
+
+    /**
+     * Get call tree (enhanced version)
+     */
+    private String getCallTreeEnhanced(String functionAddress, String direction, int maxDepth) {
+        Program program = getCurrentProgram();
+        if (program == null) return "No program loaded";
+        try {
+            Function function = null;
+            if (functionAddress != null && !functionAddress.isEmpty()) {
+                try {
+                    Address addr = program.getAddressFactory().getAddress(functionAddress);
+                    function = program.getFunctionManager().getFunctionAt(addr);
+                } catch (Exception e) {
+                    function = program.getFunctionManager().getFunction(functionAddress);
+                }
+            }
+            
+            if (function == null) {
+                return "Function not found: " + functionAddress;
+            }
+            
+            StringBuilder result = new StringBuilder("{\"function\":\"").append(function.getName()).append("\",");
+            result.append("\"address\":\"").append(function.getEntryPoint().toString()).append("\",");
+            result.append("\"direction\":\"").append(direction).append("\",");
+            result.append("\"maxDepth\":").append(maxDepth).append(",");
+            
+            if ("callers".equals(direction)) {
+                result.append("\"tree\":");
+                buildCallerTreeRecursive(function, result, 0, maxDepth, new HashSet<>());
+            } else {
+                result.append("\"tree\":");
+                buildCalleeTreeRecursive(function, result, 0, maxDepth, new HashSet<>());
+            }
+            
+            result.append("}");
+            return result.toString();
+        } catch (Exception e) {
+            return "Error: " + e.getMessage();
+        }
+    }
+
+    /**
+     * Build caller tree recursively
+     */
+    private void buildCallerTreeRecursive(Function function, StringBuilder result, int depth, int maxDepth, Set<String> visited) {
+        if (depth >= maxDepth) {
+            result.append("null");
+            return;
+        }
+        
+        String funcKey = function.getEntryPoint().toString();
+        if (visited.contains(funcKey)) {
+            result.append("{\"name\":\"").append(function.getName()).append("\",\"cycle\":true}");
+            return;
+        }
+        visited.add(funcKey);
+        
+        Function[] callers = function.getCallingFunctions(TaskMonitor.DUMMY);
+        result.append("{\"name\":\"").append(function.getName()).append("\",");
+        result.append("\"address\":\"").append(function.getEntryPoint().toString()).append("\",");
+        result.append("\"callers\":[");
+        for (int i = 0; i < callers.length; i++) {
+            if (i > 0) result.append(",");
+            buildCallerTreeRecursive(callers[i], result, depth + 1, maxDepth, new HashSet<>(visited));
+        }
+        result.append("]}");
+    }
+
+    /**
+     * Build callee tree recursively
+     */
+    private void buildCalleeTreeRecursive(Function function, StringBuilder result, int depth, int maxDepth, Set<String> visited) {
+        if (depth >= maxDepth) {
+            result.append("null");
+            return;
+        }
+        
+        String funcKey = function.getEntryPoint().toString();
+        if (visited.contains(funcKey)) {
+            result.append("{\"name\":\"").append(function.getName()).append("\",\"cycle\":true}");
+            return;
+        }
+        visited.add(funcKey);
+        
+        Function[] callees = function.getCalledFunctions(TaskMonitor.DUMMY);
+        result.append("{\"name\":\"").append(function.getName()).append("\",");
+        result.append("\"address\":\"").append(function.getEntryPoint().toString()).append("\",");
+        result.append("\"callees\":[");
+        for (int i = 0; i < callees.length; i++) {
+            if (i > 0) result.append(",");
+            buildCalleeTreeRecursive(callees[i], result, depth + 1, maxDepth, new HashSet<>(visited));
+        }
+        result.append("]}");
     }
 
     @Override
