@@ -1136,6 +1136,58 @@ def get_referencers_decompiled(address_or_symbol: str, start_index: int = 0, max
         "includeDataRefs": include_data_refs
     }))
 
+@mcp.tool()
+def get_data_type_archives() -> str:
+    """
+    Get data type archives for a specific program.
+    
+    Returns:
+        JSON with data type archives
+    """
+    return "\n".join(safe_get("datatypes/get_archives", {}))
+
+@mcp.tool()
+def get_data_types(archive_name: str, category_path: str = "/", include_subcategories: bool = False, start_index: int = 0, max_count: int = 100) -> str:
+    """
+    Get data types from a data type archive.
+    
+    Args:
+        archive_name: Name of the data type archive
+        category_path: Path to category to list data types from (e.g., '/Structure'). Use '/' for root category.
+        include_subcategories: Whether to include data types from subcategories
+        start_index: Starting index for pagination (0-based)
+        max_count: Maximum number of data types to return
+        
+    Returns:
+        JSON with data types
+    """
+    return "\n".join(safe_get("datatypes/get_types", {
+        "archiveName": archive_name,
+        "categoryPath": category_path,
+        "includeSubcategories": include_subcategories,
+        "startIndex": start_index,
+        "maxCount": max_count
+    }))
+
+@mcp.tool()
+def get_data_type_by_string(data_type_string: str, archive_name: str = "") -> str:
+    """
+    Get a data type by its string representation.
+    
+    Args:
+        data_type_string: String representation of the data type (e.g., 'char**', 'int[10]')
+        archive_name: Optional name of the data type archive to search in
+        
+    Returns:
+        JSON with data type information
+    """
+    params = {
+        "dataTypeString": data_type_string
+    }
+    if archive_name:
+        params["archiveName"] = archive_name
+    return "\n".join(safe_get("datatypes/get_by_string", params))
+
 def main():
     parser = argparse.ArgumentParser(description="MCP server for Ghidra")
     parser.add_argument("--ghidra-server", type=str, default=DEFAULT_GHIDRA_SERVER,

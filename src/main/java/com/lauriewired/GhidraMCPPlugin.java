@@ -715,6 +715,28 @@ public class GhidraMCPPlugin extends Plugin {
             sendResponse(exchange, getReferencersDecompiled(addressOrSymbol, startIndex, maxReferencers, includeRefContext, includeDataRefs));
         });
 
+        // DataType tools
+        server.createContext("/datatypes/get_archives", exchange -> {
+            sendResponse(exchange, getDataTypeArchives());
+        });
+
+        server.createContext("/datatypes/get_types", exchange -> {
+            Map<String, String> qparams = parseQueryParams(exchange);
+            String archiveName = qparams.get("archiveName");
+            String categoryPath = qparams.getOrDefault("categoryPath", "/");
+            boolean includeSubcategories = Boolean.parseBoolean(qparams.getOrDefault("includeSubcategories", "false"));
+            int startIndex = parseIntOrDefault(qparams.get("startIndex"), 0);
+            int maxCount = parseIntOrDefault(qparams.get("maxCount"), 100);
+            sendResponse(exchange, getDataTypes(archiveName, categoryPath, includeSubcategories, startIndex, maxCount));
+        });
+
+        server.createContext("/datatypes/get_by_string", exchange -> {
+            Map<String, String> qparams = parseQueryParams(exchange);
+            String dataTypeString = qparams.get("dataTypeString");
+            String archiveName = qparams.getOrDefault("archiveName", "");
+            sendResponse(exchange, getDataTypeByString(dataTypeString, archiveName));
+        });
+
         server.setExecutor(null);
         new Thread(() -> {
             try {
@@ -4461,6 +4483,120 @@ public class GhidraMCPPlugin extends Plugin {
             }
         }
         return null;
+    }
+
+    /**
+     * Get data type archives
+     */
+    private String getDataTypeArchives() {
+        Program program = getCurrentProgram();
+        if (program == null) return "No program loaded";
+        try {
+            DataTypeManager dtm = program.getDataTypeManager();
+            StringBuilder result = new StringBuilder("{\"archives\":[");
+            result.append("{\"name\":\"").append(dtm.getName()).append("\",");
+            result.append("\"type\":\"PROGRAM\",");
+            result.append("\"dataTypeCount\":").append(dtm.getDataTypeCount(true)).append(",");
+            result.append("\"categoryCount\":").append(dtm.getCategoryCount()).append("}");
+            result.append("]}");
+            return result.toString();
+        } catch (Exception e) {
+            return "Error: " + e.getMessage();
+        }
+    }
+
+    /**
+     * Get data types from archive
+     */
+    private String getDataTypes(String archiveName, String categoryPath, boolean includeSubcategories, int startIndex, int maxCount) {
+        Program program = getCurrentProgram();
+        if (program == null) return "No program loaded";
+        if (archiveName == null || archiveName.isEmpty()) return "Archive name is required";
+        try {
+            DataTypeManager dtm = program.getDataTypeManager();
+            if (!dtm.getName().equals(archiveName)) {
+                return "Archive not found: " + archiveName;
+            }
+            
+            ghidra.program.model.data.Category category;
+            if ("/".equals(categoryPath)) {
+                category = dtm.getRootCategory();
+            } else {
+                ghidra.program.model.data.CategoryPath path = new ghidra.program.model.data.CategoryPath(categoryPath);
+                category = dtm.getCategory(path);
+                if (category == null) {
+                    return "Category not found: " + categoryPath;
+                }
+            }
+            
+            List<DataType> dataTypes = new ArrayList<>();
+            if (includeSubcategories) {
+                addDataTypesRecursively(category, dataTypes);
+            } else {
+                for (DataType dt : category.getDataTypes()) {
+                    dataTypes.add(dt);
+                }
+            }
+            
+            int endIndex = Math.min(startIndex + maxCount, dataTypes.size());
+            StringBuilder result = new StringBuilder("{\"dataTypes\":[");
+            for (int i = startIndex; i < endIndex; i++) {
+                if (i > startIndex) result.append(",");
+                DataType dt = dataTypes.get(i);
+                result.append("{\"name\":\"").append(dt.getName()).append("\",");
+                result.append("\"displayName\":\"").append(dt.getDisplayName()).append("\",");
+                result.append("\"size\":").append(dt.getLength()).append("}");
+            }
+            result.append("],\"totalCount\":").append(dataTypes.size()).append("}");
+            return result.toString();
+        } catch (Exception e) {
+            return "Error: " + e.getMessage();
+        }
+    }
+
+    /**
+     * Add data types recursively
+     */
+    private void addDataTypesRecursively(ghidra.program.model.data.Category category, List<DataType> dataTypes) {
+        for (DataType dt : category.getDataTypes()) {
+            dataTypes.add(dt);
+        }
+        for (ghidra.program.model.data.Category subCategory : category.getCategories()) {
+            addDataTypesRecursively(subCategory, dataTypes);
+        }
+    }
+
+    /**
+     * Get data type by string
+     */
+    private String getDataTypeByString(String dataTypeString, String archiveName) {
+        Program program = getCurrentProgram();
+        if (program == null) return "No program loaded";
+        if (dataTypeString == null || dataTypeString.isEmpty()) return "Data type string is required";
+        try {
+            DataTypeManager dtm = program.getDataTypeManager();
+            DataType dataType = dtm.getDataType(dataTypeString);
+            if (dataType == null) {
+                // Try parsing
+                ghidra.util.data.DataTypeParser parser = new ghidra.util.data.DataTypeParser(dtm, dtm, null, ghidra.util.data.DataTypeParser.AllowedDataTypes.ALL);
+                try {
+                    dataType = parser.parse(dataTypeString);
+                } catch (Exception e) {
+                    return "Could not find or parse data type: " + dataTypeString;
+                }
+            }
+            
+            if (dataType == null) {
+                return "Could not find data type: " + dataTypeString;
+            }
+            
+            StringBuilder result = new StringBuilder("{\"name\":\"").append(dataType.getName()).append("\",");
+            result.append("\"displayName\":\"").append(dataType.getDisplayName()).append("\",");
+            result.append("\"size\":").append(dataType.getLength()).append("}");
+            return result.toString();
+        } catch (Exception e) {
+            return "Error: " + e.getMessage();
+        }
     }
 
     @Override
