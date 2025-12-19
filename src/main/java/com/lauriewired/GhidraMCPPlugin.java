@@ -454,6 +454,42 @@ public class GhidraMCPPlugin extends Plugin {
             sendResponse(exchange, findVtableCallers(functionAddress));
         });
 
+        // Enhanced string tools
+        server.createContext("/search_strings_regex", exchange -> {
+            Map<String, String> qparams = parseQueryParams(exchange);
+            String pattern = qparams.get("pattern");
+            int maxResults = parseIntOrDefault(qparams.get("maxResults"), 100);
+            sendResponse(exchange, searchStringsRegex(pattern, maxResults));
+        });
+
+        server.createContext("/get_strings_count", exchange -> {
+            sendResponse(exchange, getStringsCount());
+        });
+
+        // Enhanced cross-reference tools
+        server.createContext("/find_cross_references", exchange -> {
+            Map<String, String> qparams = parseQueryParams(exchange);
+            String location = qparams.get("location");
+            String direction = qparams.get("direction");
+            int limit = parseIntOrDefault(qparams.get("limit"), 100);
+            sendResponse(exchange, findCrossReferences(location, direction, limit));
+        });
+
+        // Data type and label tools
+        server.createContext("/create_label", exchange -> {
+            Map<String, String> params = parsePostParams(exchange);
+            String address = params.get("address");
+            String labelName = params.get("labelName");
+            boolean success = createLabel(address, labelName);
+            sendResponse(exchange, success ? "Label created successfully" : "Failed to create label");
+        });
+
+        server.createContext("/get_data_at_address", exchange -> {
+            Map<String, String> qparams = parseQueryParams(exchange);
+            String address = qparams.get("address");
+            sendResponse(exchange, getDataAtAddress(address));
+        });
+
         server.setExecutor(null);
         new Thread(() -> {
             try {
@@ -1465,9 +1501,224 @@ public class GhidraMCPPlugin extends Plugin {
         }
     }
 
-/**
- * List all defined strings in the program with their addresses
- */
+    // ----------------------------------------------------------------------------------
+    // Enhanced string search methods
+    // ----------------------------------------------------------------------------------
+
+    /**
+     * Search strings using regex pattern
+     */
+    private String searchStringsRegex(String patternStr, int maxResults) {
+        Program program = getCurrentProgram();
+        if (program == null) return "No program loaded";
+        if (patternStr == null || patternStr.isEmpty()) return "Pattern is required";
+
+        try {
+            java.util.regex.Pattern pattern = java.util.regex.Pattern.compile(patternStr);
+            List<String> results = new ArrayList<>();
+            DataIterator dataIt = program.getListing().getDefinedData(true);
+            
+            int count = 0;
+            while (dataIt.hasNext() && count < maxResults) {
+                Data data = dataIt.next();
+                
+                if (data != null && isStringData(data)) {
+                    String value = data.getValue() != null ? data.getValue().toString() : "";
+                    
+                    if (pattern.matcher(value).find()) {
+                        String escapedValue = escapeString(value);
+                        results.add(String.format("%s: \"%s\"", data.getAddress(), escapedValue));
+                        count++;
+                    }
+                }
+            }
+            
+            if (results.isEmpty()) {
+                return "No strings matching pattern: " + patternStr;
+            }
+            
+            return String.format("Found %d string(s) matching /%s/:\n%s",
+                results.size(), patternStr, String.join("\n", results));
+                
+        } catch (java.util.regex.PatternSyntaxException e) {
+            return "Invalid regex pattern: " + e.getMessage();
+        } catch (Exception e) {
+            return "Error: " + e.getMessage();
+        }
+    }
+
+    /**
+     * Get total count of strings in the program
+     */
+    private String getStringsCount() {
+        Program program = getCurrentProgram();
+        if (program == null) return "No program loaded";
+
+        int count = 0;
+        DataIterator dataIt = program.getListing().getDefinedData(true);
+        
+        while (dataIt.hasNext()) {
+            Data data = dataIt.next();
+            if (data != null && isStringData(data)) {
+                count++;
+            }
+        }
+        
+        return "Total strings in program: " + count;
+    }
+
+    // ----------------------------------------------------------------------------------
+    // Cross-reference methods
+    // ----------------------------------------------------------------------------------
+
+    /**
+     * Find cross-references with options
+     */
+    private String findCrossReferences(String location, String direction, int limit) {
+        Program program = getCurrentProgram();
+        if (program == null) return "No program loaded";
+        if (location == null) return "Location is required";
+
+        try {
+            Address addr = program.getAddressFactory().getAddress(location);
+            ReferenceManager refMgr = program.getReferenceManager();
+            List<String> results = new ArrayList<>();
+
+            if ("to".equalsIgnoreCase(direction) || direction == null || direction.isEmpty()) {
+                // Get references TO this address
+                ReferenceIterator refsTo = refMgr.getReferencesTo(addr);
+                int count = 0;
+                while (refsTo.hasNext() && count < limit) {
+                    Reference ref = refsTo.next();
+                    Address fromAddr = ref.getFromAddress();
+                    RefType refType = ref.getReferenceType();
+                    
+                    Function fromFunc = program.getFunctionManager().getFunctionContaining(fromAddr);
+                    String funcInfo = (fromFunc != null) ? " in " + fromFunc.getName() : "";
+                    
+                    results.add(String.format("FROM %s%s [%s]", fromAddr, funcInfo, refType.getName()));
+                    count++;
+                }
+            }
+
+            if ("from".equalsIgnoreCase(direction) || direction == null || direction.isEmpty()) {
+                // Get references FROM this address
+                Reference[] refsFrom = refMgr.getReferencesFrom(addr);
+                int count = 0;
+                for (Reference ref : refsFrom) {
+                    if (count >= limit) break;
+                    
+                    Address toAddr = ref.getToAddress();
+                    RefType refType = ref.getReferenceType();
+                    
+                    Function toFunc = program.getFunctionManager().getFunctionAt(toAddr);
+                    String targetInfo = (toFunc != null) ? " to function " + toFunc.getName() : "";
+                    
+                    results.add(String.format("TO %s%s [%s]", toAddr, targetInfo, refType.getName()));
+                    count++;
+                }
+            }
+
+            if (results.isEmpty()) {
+                return "No cross-references found at: " + location;
+            }
+
+            return String.format("Cross-references at %s:\n%s",
+                addr, String.join("\n", results));
+
+        } catch (Exception e) {
+            return "Error: " + e.getMessage();
+        }
+    }
+
+    // ----------------------------------------------------------------------------------
+    // Data and label methods
+    // ----------------------------------------------------------------------------------
+
+    /**
+     * Create a label at a specific address
+     */
+    private boolean createLabel(String addressStr, String labelName) {
+        Program program = getCurrentProgram();
+        if (program == null) return false;
+        if (addressStr == null || labelName == null) return false;
+
+        AtomicBoolean success = new AtomicBoolean(false);
+        try {
+            SwingUtilities.invokeAndWait(() -> {
+                int tx = program.startTransaction("Create Label");
+                try {
+                    Address addr = program.getAddressFactory().getAddress(addressStr);
+                    SymbolTable symTable = program.getSymbolTable();
+                    
+                    // Check if label already exists
+                    Symbol existing = symTable.getPrimarySymbol(addr);
+                    if (existing != null && !existing.getName().startsWith("FUN_") && !existing.getName().startsWith("DAT_")) {
+                        // Label already exists, set name
+                        existing.setName(labelName, SourceType.USER_DEFINED);
+                    } else {
+                        // Create new label
+                        symTable.createLabel(addr, labelName, SourceType.USER_DEFINED);
+                    }
+                    success.set(true);
+                } catch (Exception e) {
+                    Msg.error(this, "Error creating label", e);
+                } finally {
+                    program.endTransaction(tx, success.get());
+                }
+            });
+        } catch (InterruptedException | InvocationTargetException e) {
+            Msg.error(this, "Failed to execute create label on Swing thread", e);
+        }
+        return success.get();
+    }
+
+    /**
+     * Get data at a specific address
+     */
+    private String getDataAtAddress(String addressStr) {
+        Program program = getCurrentProgram();
+        if (program == null) return "No program loaded";
+        if (addressStr == null) return "Address is required";
+
+        try {
+            Address addr = program.getAddressFactory().getAddress(addressStr);
+            Data data = program.getListing().getDataAt(addr);
+            
+            if (data == null) {
+                return "No defined data at address: " + addressStr;
+            }
+
+            StringBuilder result = new StringBuilder();
+            result.append("Data at ").append(addr).append(":\n");
+            result.append("Type: ").append(data.getDataType().getName()).append("\n");
+            result.append("Size: ").append(data.getLength()).append(" bytes\n");
+            
+            String label = data.getLabel();
+            if (label != null) {
+                result.append("Label: ").append(label).append("\n");
+            }
+            
+            Object value = data.getValue();
+            if (value != null) {
+                result.append("Value: ").append(value.toString()).append("\n");
+            }
+            
+            String valRepr = data.getDefaultValueRepresentation();
+            if (valRepr != null) {
+                result.append("Representation: ").append(valRepr).append("\n");
+            }
+
+            return result.toString();
+
+        } catch (Exception e) {
+            return "Error: " + e.getMessage();
+        }
+    }
+
+    /**
+     * List all defined strings in the program with their addresses
+     */
     private String listDefinedStrings(int offset, int limit, String filter) {
         Program program = getCurrentProgram();
         if (program == null) return "No program loaded";

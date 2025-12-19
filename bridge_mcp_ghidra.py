@@ -546,6 +546,83 @@ def find_vtable_callers(function_address: str) -> str:
         "functionAddress": function_address
     }))
 
+@mcp.tool()
+def search_strings_regex(pattern: str, max_results: int = 100) -> str:
+    """
+    Search for strings matching a regex pattern.
+    
+    Args:
+        pattern: Regular expression pattern to search for
+        max_results: Maximum number of results to return (default: 100)
+        
+    Returns:
+        List of strings matching the pattern
+    """
+    return "\n".join(safe_get("search_strings_regex", {
+        "pattern": pattern,
+        "maxResults": max_results
+    }))
+
+@mcp.tool()
+def get_strings_count() -> str:
+    """
+    Get the total count of strings in the program.
+    
+    Returns:
+        Total number of defined strings
+    """
+    return "\n".join(safe_get("get_strings_count"))
+
+@mcp.tool()
+def find_cross_references(location: str, direction: str = None, limit: int = 100) -> str:
+    """
+    Find cross-references to/from a specific location.
+    
+    Args:
+        location: Address or symbol name
+        direction: Direction - 'to', 'from', or None for both (default: None)
+        limit: Maximum number of references per direction (default: 100)
+        
+    Returns:
+        List of cross-references
+    """
+    params = {"location": location, "limit": limit}
+    if direction:
+        params["direction"] = direction
+    return "\n".join(safe_get("find_cross_references", params))
+
+@mcp.tool()
+def create_label(address: str, label_name: str) -> str:
+    """
+    Create a label at a specific address.
+    
+    Args:
+        address: Address where to create the label
+        label_name: Name for the label
+        
+    Returns:
+        Success or failure message
+    """
+    return safe_post("create_label", {
+        "address": address,
+        "labelName": label_name
+    })
+
+@mcp.tool()
+def get_data_at_address(address: str) -> str:
+    """
+    Get data information at a specific address.
+    
+    Args:
+        address: Address to query
+        
+    Returns:
+        Data type, size, label, and value information
+    """
+    return "\n".join(safe_get("get_data_at_address", {
+        "address": address
+    }))
+
 def main():
     parser = argparse.ArgumentParser(description="MCP server for Ghidra")
     parser.add_argument("--ghidra-server", type=str, default=DEFAULT_GHIDRA_SERVER,
