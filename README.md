@@ -11,7 +11,7 @@
 
 [![Install MCP Server](https://cursor.com/deeplink/mcp-install-light.svg)](https://cursor.com/en/install-mcp?name=ghidra&config=eyJjb21tYW5kIjoicHl0aG9uIiwiYXJncyI6WyIvQUJTT0xVVEVfUEFUSF9UTy9icmlkZ2VfbWNwX2doaWRyYS5weSIsIi0tZ2hpZHJhLXNlcnZlciIsImh0dHA6Ly8xMjcuMC4wLjE6ODA4MC8iXX0%3D)
 
-GhidraMCP is a Model Context Protocol (MCP) server that enables AI language models to autonomously reverse engineer applications using Ghidra's powerful analysis capabilities. It exposes 39 comprehensive tools covering decompilation, call graphs, data flow analysis, vtable detection, and much more.
+GhidraMCP is a Model Context Protocol (MCP) server that enables AI language models to autonomously reverse engineer applications using Ghidra's powerful analysis capabilities. It exposes 90 comprehensive tools covering decompilation, call graphs, data flow analysis, vtable detection, structures, data types, and much more.
 
 https://github.com/user-attachments/assets/36080514-f227-44bd-af84-78e29ee1d7f9
 
@@ -25,7 +25,7 @@ https://github.com/user-attachments/assets/36080514-f227-44bd-af84-78e29ee1d7f9
 
 ## ✅ The Solution: AI-Assisted Reverse Engineering
 
-- **39 comprehensive tools** for binary analysis
+- **90 comprehensive tools** for binary analysis
 - **Automated decompilation** and variable renaming
 - **Call graph analysis** to understand function relationships
 - **Data flow tracing** to track value origins and uses
@@ -34,9 +34,9 @@ https://github.com/user-attachments/assets/36080514-f227-44bd-af84-78e29ee1d7f9
 - **Bookmark management** for organizing analysis findings
 - **Memory analysis** with hex dumps and block inspection
 
-GhidraMCP bridges Ghidra's powerful reverse engineering capabilities with AI agents, enabling autonomous binary analysis.
+GhidraMCP bridges Ghidra's powerful reverse engineering capabilities with AI language models, enabling autonomous binary analysis.
 
-Just tell your AI agent to **analyze the binary**:
+Just tell your AI assistant to **analyze the binary**:
 
 ```txt
 Analyze the main function and trace where user input flows. Use GhidraMCP tools.
@@ -150,7 +150,7 @@ Run this command. See [Claude Code MCP docs](https://docs.anthropic.com/en/docs/
 claude mcp add ghidra -- python /ABSOLUTE_PATH_TO/bridge_mcp_ghidra.py --ghidra-server http://127.0.0.1:8080/
 ```
 
-Or for SSE transport (if you run the bridge with `--transport sse`):
+Or for SSE transport:
 
 ```sh
 claude mcp add --transport sse ghidra http://127.0.0.1:8081/sse
@@ -412,12 +412,13 @@ Note: Use `host.docker.internal` to access the Ghidra server running on the host
 
 ## 🔨 Available Tools
 
-GhidraMCP provides **39 comprehensive tools** organized into 10 categories:
+GhidraMCP provides **90 comprehensive tools** organized into 15 categories:
 
 ### Core Analysis Tools
 
 - **`decompile_function`**: Decompile a function by name to C pseudocode
 - **`decompile_function_by_address`**: Decompile a function at a specific address
+- **`get_decompilation`**: Get decompiled code for a function with line range support and optional metadata
 - **`disassemble_function`**: Get assembly code for a function
 - **`get_function_by_address`**: Get function information by address
 - **`get_function_info`**: Get detailed function info with parameters and locals
@@ -425,35 +426,49 @@ GhidraMCP provides **39 comprehensive tools** organized into 10 categories:
 - **`list_methods`**: List all function names with pagination
 - **`list_function_calls`**: List all function calls within a function
 - **`search_functions_by_name`**: Search functions by name substring
+- **`get_function_count`**: Get total count of functions in the program
+- **`get_functions_by_similarity`**: Get functions sorted by similarity to a given function name
+- **`get_undefined_function_candidates`**: Find addresses in executable memory referenced but not defined as functions
+- **`create_function`**: Create a function at an address with auto-detected signature
 
 ### Call Graph & Relationships
 
 - **`get_call_graph`**: Get bidirectional call graph (callers + callees) up to specified depth
+- **`get_call_tree`**: Get hierarchical call tree starting from a function (callers or callees)
 - **`get_function_callers`**: List all functions that call a specific function
 - **`get_function_callees`**: List all functions called by a specific function
 - **`get_function_xrefs`**: Get all references to a function by name
+- **`get_callers_decompiled`**: Decompile all functions that call a target function
+- **`find_common_callers`**: Find functions that call ALL of the specified target functions
 
 ### Cross-References
 
 - **`get_xrefs_to`**: Get all references TO a specific address
 - **`get_xrefs_from`**: Get all references FROM a specific address
 - **`find_cross_references`**: Find cross-references with directional filtering (to/from/both)
+- **`get_referencers_decompiled`**: Decompile all functions that reference a specific address or symbol
+- **`find_import_references`**: Find all locations where a specific imported function is called
+- **`resolve_thunk`**: Follow a thunk chain to find the actual target function
 
 ### Data Flow Analysis
 
 - **`trace_data_flow_backward`**: Trace where a value at an address comes from (origins)
 - **`trace_data_flow_forward`**: Trace where a value at an address flows to (uses)
+- **`find_variable_accesses`**: Find all reads and writes to a variable within a function
 
 ### Constants & Values
 
 - **`find_constant_uses`**: Find all uses of a specific constant value (supports hex, decimal, negative)
 - **`find_constants_in_range`**: Find constants within a numeric range (useful for error codes, enums)
+- **`list_common_constants`**: Find the most frequently used constant values in the program
 
 ### Strings
 
 - **`list_strings`**: List all defined strings with addresses and optional filter
+- **`get_strings`**: Get strings from the program with pagination
 - **`search_strings_regex`**: Search strings using regex patterns
 - **`get_strings_count`**: Get total count of defined strings
+- **`get_strings_by_similarity`**: Get strings sorted by similarity to a given string
 
 ### Memory & Data
 
@@ -468,16 +483,24 @@ GhidraMCP provides **39 comprehensive tools** organized into 10 categories:
 - **`set_bookmark`**: Create or update a bookmark at an address (Note, Warning, TODO, Bug, Analysis)
 - **`get_bookmarks`**: Retrieve bookmarks by address or type
 - **`search_bookmarks`**: Search bookmarks by comment text
+- **`remove_bookmark`**: Remove a bookmark at a specific address
+- **`list_bookmark_categories`**: List all categories for a given bookmark type
 
 ### Comments
 
 - **`set_decompiler_comment`**: Set a comment in function pseudocode
 - **`set_disassembly_comment`**: Set a comment in assembly listing
+- **`set_decompilation_comment`**: Set a comment at a specific line in decompiled code
+- **`set_comment`**: Set or update a comment at a specific address
+- **`get_comments`**: Get comments at a specific address or within an address range
+- **`search_comments`**: Search for comments containing specific text
+- **`search_decompilation`**: Search for patterns across all function decompilations in a program
 
 ### Vtable Analysis (C++)
 
 - **`analyze_vtable`**: Analyze virtual function table to extract function pointers
 - **`find_vtable_callers`**: Find indirect calls that could invoke a function via vtable
+- **`find_vtables_containing_function`**: Find all vtables that contain a pointer to the given function
 
 ### Symbols & Labels
 
@@ -486,20 +509,48 @@ GhidraMCP provides **39 comprehensive tools** organized into 10 categories:
 - **`list_imports`**: List imported symbols
 - **`list_exports`**: List exported functions/symbols
 - **`create_label`**: Create or update a label at an address
+- **`get_symbols`**: Get symbols from the selected program with pagination
+- **`get_symbols_count`**: Get total count of symbols in the program
 
 ### Function & Variable Manipulation
 
 - **`rename_function`**: Rename a function by name
-- **`rename_function_by_address`**: Rename a function by address
 - **`rename_data`**: Rename a data label at an address
 - **`rename_variable`**: Rename a local variable within a function
+- **`rename_variables`**: Rename multiple variables in a decompiled function
 - **`set_function_prototype`**: Set a function's prototype/signature
 - **`set_local_variable_type`**: Set a local variable's data type
+- **`change_variable_datatypes`**: Change data types of variables in a decompiled function
+
+### Structures
+
+- **`parse_c_structure`**: Parse and create structures from C-style definitions
+- **`validate_c_structure`**: Validate C-style structure definition without creating it
+- **`create_structure`**: Create a new empty structure or union
+- **`add_structure_field`**: Add a field to an existing structure
+- **`modify_structure_field`**: Modify an existing field in a structure
+- **`modify_structure_from_c`**: Modify an existing structure using a C-style definition
+- **`get_structure_info`**: Get detailed information about a structure
+- **`list_structures`**: List all structures in a program
+- **`apply_structure`**: Apply a structure at a specific address
+- **`delete_structure`**: Delete a structure from the program
+- **`parse_c_header`**: Parse an entire C header file and create all structures
+
+### Data Types
+
+- **`get_data_type_archives`**: Get data type archives for a specific program
+- **`get_data_types`**: Get data types from a data type archive
+- **`get_data_type_by_string`**: Get a data type by its string representation
+- **`apply_data_type`**: Apply a data type to a specific address or symbol
 
 ### Current Context
 
 - **`get_current_address`**: Get the address currently selected in Ghidra GUI
 - **`get_current_function`**: Get the function currently selected in Ghidra GUI
+
+### Function Tags
+
+- **`function_tags`**: Manage function tags (get, set, add, remove, list) to categorize functions
 
 ## 💡 Usage Tips
 
