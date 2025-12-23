@@ -412,7 +412,7 @@ Note: Use `host.docker.internal` to access the Ghidra server running on the host
 
 ## 🔨 Available Tools
 
-GhidraMCP provides **90 comprehensive tools** organized into 15 categories:
+GhidraMCP provides **90 comprehensive tools** organized into 16 categories:
 
 ### Core Analysis Tools
 
@@ -493,6 +493,7 @@ GhidraMCP provides **90 comprehensive tools** organized into 15 categories:
 - **`set_decompilation_comment`**: Set a comment at a specific line in decompiled code
 - **`set_comment`**: Set or update a comment at a specific address
 - **`get_comments`**: Get comments at a specific address or within an address range
+- **`remove_comment`**: Remove a specific comment at an address
 - **`search_comments`**: Search for comments containing specific text
 - **`search_decompilation`**: Search for patterns across all function decompilations in a program
 
@@ -515,6 +516,7 @@ GhidraMCP provides **90 comprehensive tools** organized into 15 categories:
 ### Function & Variable Manipulation
 
 - **`rename_function`**: Rename a function by name
+- **`rename_function_by_address`**: Rename a function by address
 - **`rename_data`**: Rename a data label at an address
 - **`rename_variable`**: Rename a local variable within a function
 - **`rename_variables`**: Rename multiple variables in a decompiled function
