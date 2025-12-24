@@ -46,7 +46,7 @@ Analyze the main function and trace where user input flows. Use GhidraMCP tools.
 
 ### 📋 Requirements
 
-- [Ghidra](https://ghidra-sre.org) (any recent version)
+- [Ghidra](https://ghidra-sre.org) 12.0 or later
 - Python 3.10+ with `requests` and `mcp` packages
 - MCP-compatible client (Cursor, Claude Desktop, VS Code, etc.)
 
