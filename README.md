@@ -412,938 +412,435 @@ Note: Use `host.docker.internal` to access the Ghidra server running on the host
 
 ## 🔨 Available Tools
 
-GhidraMCP provides **90 comprehensive tools** organized into 16 categories:
-
-### Core Analysis Tools
-
-- **`decompile_function`**: Decompile a function by name to C pseudocode
-  
-  Decompile a specific function by name and return the decompiled C code.
-
-- **`decompile_function_by_address`**: Decompile a function at a specific address
-  
-  Decompile a function at the given address.
-
-- **`get_decompilation`**: Get decompiled code for a function with line range support and optional metadata
-  
-  Get decompiled code for a function with line range support.
-  
-  Args:
-      function_name_or_address: Function name or address to decompile
-      offset: Line number to start reading from (1-based, default: 1)
-      limit: Number of lines to return (default: 50)
-      include_callers: Include list of functions that call this one
-      include_callees: Include list of functions this one calls
-      include_comments: Whether to include comments in the decompilation
-      include_incoming_references: Whether to include incoming cross references
-      include_reference_context: Whether to include code context snippets from calling functions
-  
-  Returns:
-      JSON with decompiled code and optional metadata
-
-- **`disassemble_function`**: Get assembly code for a function
-  
-  Get assembly code (address: instruction; comment) for a function.
-
-- **`get_function_by_address`**: Get function information by address
-  
-  Get a function by its address.
-
-- **`get_function_info`**: Get detailed function info with parameters and locals
-  
-  Get detailed information about a function.
-  
-  Args:
-      address: Address of the function
-  
-  Returns:
-      Detailed function information including parameters and local variables
-
-- **`list_functions`**: List all functions in the program
-  
-  List all functions in the database.
-
-- **`list_methods`**: List all function names with pagination
-  
-  List all function names in the program with pagination.
-
-- **`list_function_calls`**: List all function calls within a function
-  
-  List all function calls within a specific function.
-  
-  Args:
-      function_address: Address of the function to analyze
-  
-  Returns:
-      List of function calls made within the function
-
-- **`search_functions_by_name`**: Search functions by name substring
-  
-  Search for functions whose name contains the given substring.
-
-- **`get_function_count`**: Get total count of functions in the program
-  
-  Get the total count of functions in the program.
-  
-  Args:
-      filter_default_names: Whether to filter out default Ghidra generated names like FUN_, DAT_, etc.
-  
-  Returns:
-      JSON with function count
-
-- **`get_functions_by_similarity`**: Get functions sorted by similarity to a given function name
-  
-  Get functions sorted by similarity to a given function name.
-  
-  Args:
-      search_string: Function name to compare against for similarity
-      start_index: Starting index for pagination (0-based)
-      max_count: Maximum number of functions to return
-      filter_default_names: Whether to filter out default Ghidra generated names
-  
-  Returns:
-      JSON with matching functions sorted by similarity
-
-- **`get_undefined_function_candidates`**: Find addresses in executable memory referenced but not defined as functions
-  
-  Find addresses in executable memory that are referenced but not defined as functions.
-  
-  Args:
-      start_index: Starting index for pagination (0-based)
-      max_candidates: Maximum number of candidates to return
-      min_reference_count: Minimum number of references required to be a candidate
-  
-  Returns:
-      JSON with undefined function candidates
-
-- **`create_function`**: Create a function at an address with auto-detected signature
-  
-  Create a function at an address with auto-detected signature.
-  
-  Args:
-      address: Address where the function should be created (e.g., '0x401000')
-      name: Optional name for the function. If not provided, Ghidra will generate a default name
-  
-  Returns:
-      Success or failure message
-
-### Call Graph & Relationships
-
-- **`get_call_graph`**: Get bidirectional call graph (callers + callees) up to specified depth
-  
-  Get call graph around a function showing both callers and callees.
-  
-  Args:
-      function_address: Address or name of the function
-      depth: Depth of call graph to retrieve
-  
-  Returns:
-      Call graph information
-
-- **`get_call_tree`**: Get hierarchical call tree starting from a function (callers or callees)
-  
-  Get a hierarchical call tree starting from a function.
-  
-  Args:
-      function_address: Address or name of the function to analyze
-      direction: Direction to traverse: 'callers' (who calls this) or 'callees' (what this calls)
-      max_depth: Maximum depth to traverse (default: 3, max: 10)
-  
-  Returns:
-      Call tree as formatted text
-
-- **`get_function_callers`**: List all functions that call a specific function
-  
-  Get all functions that call a specific function.
-  
-  Args:
-      function_address: Address or name of the function
-  
-  Returns:
-      List of calling functions
-
-- **`get_function_callees`**: List all functions called by a specific function
-  
-  Get all functions called by a specific function.
-  
-  Args:
-      function_address: Address or name of the function
-  
-  Returns:
-      List of called functions
-
-- **`get_function_xrefs`**: Get all references to a function by name
-  
-  Get all references to the specified function by name.
-  
-  Args:
-      name: Function name to search for
-      offset: Pagination offset (default: 0)
-      limit: Maximum number of references to return (default: 100)
-  
-  Returns:
-      List of references to the specified function
-
-- **`get_callers_decompiled`**: Decompile all functions that call a target function
-  
-  Decompile all functions that call a target function.
-  
-  Args:
-      function_name_or_address: Target function name or address to find callers for
-      start_index: Starting index for pagination (0-based)
-      max_callers: Maximum number of calling functions to decompile
-      include_call_context: Whether to highlight the line containing the call in each decompilation
-  
-  Returns:
-      JSON with decompiled callers
-
-- **`find_common_callers`**: Find functions that call ALL of the specified target functions
-  
-  Find functions that call ALL of the specified target functions.
-  
-  Args:
-      function_addresses: Comma-separated list of function addresses or names
-  
-  Returns:
-      List of common callers
-
-### Cross-References
-
-- **`get_xrefs_to`**: Get all references TO a specific address
-  
-  Get all references to the specified address (xref to).
-  
-  Args:
-      address: Target address in hex format (e.g. "0x1400010a0")
-      offset: Pagination offset (default: 0)
-      limit: Maximum number of references to return (default: 100)
-  
-  Returns:
-      List of references to the specified address
-
-- **`get_xrefs_from`**: Get all references FROM a specific address
-  
-  Get all references from the specified address (xref from).
-  
-  Args:
-      address: Source address in hex format (e.g. "0x1400010a0")
-      offset: Pagination offset (default: 0)
-      limit: Maximum number of references to return (default: 100)
-  
-  Returns:
-      List of references from the specified address
-
-- **`find_cross_references`**: Find cross-references with directional filtering (to/from/both)
-  
-  Find cross-references to/from a specific location.
-  
-  Args:
-      location: Address or symbol name
-      direction: Direction - 'to', 'from', or None for both (default: None)
-      limit: Maximum number of references per direction (default: 100)
-  
-  Returns:
-      List of cross-references
-
-- **`get_referencers_decompiled`**: Decompile all functions that reference a specific address or symbol
-  
-  Decompile all functions that reference a specific address or symbol.
-  
-  Args:
-      address_or_symbol: Target address or symbol name to find references to
-      start_index: Starting index for pagination (0-based)
-      max_referencers: Maximum number of referencing functions to decompile
-      include_ref_context: Whether to include reference line numbers in decompilation
-      include_data_refs: Whether to include data references (reads/writes), not just calls
-  
-  Returns:
-      JSON with decompiled referencers
-
-- **`find_import_references`**: Find all locations where a specific imported function is called
-  
-  Find all locations where a specific imported function is called.
-  
-  Args:
-      import_name: Name of the imported function to find references for (case-insensitive)
-      library_name: Optional specific library name to narrow search (case-insensitive)
-      max_results: Maximum number of references to return
-  
-  Returns:
-      JSON with references to the imported function
-
-- **`resolve_thunk`**: Follow a thunk chain to find the actual target function
-  
-  Follow a thunk chain to find the actual target function.
-  
-  Args:
-      address: Address of the thunk or jump stub to resolve
-  
-  Returns:
-      JSON with thunk chain information
-
-### Data Flow Analysis
-
-- **`trace_data_flow_backward`**: Trace where a value at an address comes from (origins)
-  
-  Trace data flow backward from an address to find origins.
-  
-  Args:
-      address: Address within a function to trace backward from
-  
-  Returns:
-      Data flow information showing where values come from
-
-- **`trace_data_flow_forward`**: Trace where a value at an address flows to (uses)
-  
-  Trace data flow forward from an address to find uses.
-  
-  Args:
-      address: Address within a function to trace forward from
-  
-  Returns:
-      Data flow information showing where values are used
-
-- **`find_variable_accesses`**: Find all reads and writes to a variable within a function
-  
-  Find all reads and writes to a variable within a function.
-  
-  Args:
-      function_address: Address of the function to analyze
-      variable_name: Name of the variable to find accesses for
-  
-  Returns:
-      List of variable accesses
-
-### Constants & Values
-
-- **`find_constant_uses`**: Find all uses of a specific constant value (supports hex, decimal, negative)
-  
-  Find all uses of a specific constant value in the program.
-  
-  Args:
-      value: Constant value to search for (supports hex with 0x, decimal, negative)
-      max_results: Maximum number of results to return
-  
-  Returns:
-      List of instructions using the constant
-
-- **`find_constants_in_range`**: Find constants within a numeric range (useful for error codes, enums)
-  
-  Find all constants within a specific numeric range.
-  
-  Args:
-      min_value: Minimum value (inclusive, supports hex/decimal)
-      max_value: Maximum value (inclusive, supports hex/decimal)
-      max_results: Maximum number of results to return
-  
-  Returns:
-      List of constants found in the range with occurrence counts
-
-- **`list_common_constants`**: Find the most frequently used constant values in the program
-  
-  Find the most frequently used constant values in the program.
-  
-  Args:
-      include_small_values: Include small values (0-255) which are often noise
-      min_value: Optional minimum value to consider (filters out small constants)
-      top_n: Number of most common constants to return
-  
-  Returns:
-      JSON with most common constants
-
-### Strings
-
-- **`list_strings`**: List all defined strings with addresses and optional filter
-  
-  List all defined strings in the program with their addresses.
-  
-  Args:
-      offset: Pagination offset (default: 0)
-      limit: Maximum number of strings to return (default: 2000)
-      filter: Optional filter to match within string content
-  
-  Returns:
-      List of strings with their addresses
-
-- **`get_strings`**: Get strings from the program with pagination
-  
-  Get strings from the program with pagination.
-  
-  Args:
-      start_index: Starting index for pagination (0-based)
-      max_count: Maximum number of strings to return
-      include_referencing_functions: Include list of functions that reference each string
-  
-  Returns:
-      JSON with strings list and pagination info
-
-- **`search_strings_regex`**: Search strings using regex patterns
-  
-  Search for strings matching a regex pattern.
-  
-  Args:
-      pattern: Regular expression pattern to search for
-      max_results: Maximum number of results to return (default: 100)
-  
-  Returns:
-      List of strings matching the pattern
-
-- **`get_strings_count`**: Get total count of defined strings
-  
-  Get the total count of strings in the program.
-  
-  Returns:
-      Total number of defined strings
-
-- **`get_strings_by_similarity`**: Get strings sorted by similarity to a given string
-  
-  Get strings sorted by similarity to a given string.
-  
-  Args:
-      search_string: String to compare against for similarity
-      start_index: Starting index for pagination (0-based)
-      max_count: Maximum number of strings to return
-      include_referencing_functions: Include list of functions that reference each string
-  
-  Returns:
-      JSON with matching strings sorted by similarity
-
-### Memory & Data
-
-- **`get_memory_blocks`**: List all memory blocks with properties (R/W/X, size, etc.)
-  
-  Get all memory blocks in the program.
-  
-  Returns:
-      List of memory blocks with their properties
-
-- **`read_memory`**: Read memory at address with hex dump and ASCII representation
-  
-  Read memory at a specific address.
-  
-  Args:
-      address: Address to read from
-      length: Number of bytes to read (default: 16)
-  
-  Returns:
-      Hex dump of memory content
-
-- **`get_data_at_address`**: Get detailed data information (type, size, label, value)
-  
-  Get data information at a specific address.
-  
-  Args:
-      address: Address to query
-  
-  Returns:
-      Data type, size, label, and value information
-
-- **`list_data_items`**: List defined data labels and their values
-  
-  List defined data labels and their values with pagination.
-
-- **`list_segments`**: List all memory segments
-  
-  List all memory segments in the program with pagination.
-
-### Bookmarks & Annotations
-
-- **`set_bookmark`**: Create or update a bookmark at an address (Note, Warning, TODO, Bug, Analysis)
-  
-  Set a bookmark at a specific address.
-  
-  Args:
-      address: Address where to set the bookmark
-      type: Bookmark type (e.g. 'Note', 'Warning', 'TODO', 'Bug', 'Analysis')
-      category: Bookmark category for organization
-      comment: Bookmark comment text
-  
-  Returns:
-      Success or failure message
-
-- **`get_bookmarks`**: Retrieve bookmarks by address or type
-  
-  Get bookmarks at an address or of a specific type.
-  
-  Args:
-      address: Optional address to get bookmarks from
-      type: Optional bookmark type to filter by
-  
-  Returns:
-      List of bookmarks
-
-- **`search_bookmarks`**: Search bookmarks by comment text
-  
-  Search bookmarks by text content.
-  
-  Args:
-      search_text: Text to search for in bookmark comments
-      max_results: Maximum number of results to return
-  
-  Returns:
-      List of matching bookmarks
-
-- **`remove_bookmark`**: Remove a bookmark at a specific address
-  
-  Remove a bookmark at a specific address.
-  
-  Args:
-      address_or_symbol: Address or symbol name where to remove the bookmark
-      type: Bookmark type (e.g. 'Note', 'Warning', 'TODO', 'Bug', 'Analysis')
-      category: Bookmark category for organizing bookmarks (optional)
-  
-  Returns:
-      Success or failure message
-
-- **`list_bookmark_categories`**: List all categories for a given bookmark type
-  
-  List all categories for a given bookmark type.
-  
-  Args:
-      type: Bookmark type to get categories for
-  
-  Returns:
-      JSON with bookmark categories
-
-### Comments
-
-- **`set_decompiler_comment`**: Set a comment in function pseudocode
-  
-  Set a comment for a given address in the function pseudocode.
-
-- **`set_disassembly_comment`**: Set a comment in assembly listing
-  
-  Set a comment for a given address in the function disassembly.
-
-- **`set_decompilation_comment`**: Set a comment at a specific line in decompiled code
-  
-  Set a comment at a specific line in decompiled code.
-  
-  Args:
-      function_name_or_address: Function name or address
-      line_number: Line number in the decompiled function (1-based)
-      comment: The comment text to set
-      comment_type: Type of comment: 'pre' or 'eol' (end-of-line, default)
-  
-  Returns:
-      JSON with success status
-
-- **`set_comment`**: Set or update a comment at a specific address
-  
-  Set or update a comment at a specific address.
-  
-  Args:
-      address_or_symbol: Address or symbol name where to set the comment
-      comment: The comment text to set
-      comment_type: Type of comment: 'pre', 'eol', 'post', 'plate', or 'repeatable'
-  
-  Returns:
-      Success or failure message
-
-- **`get_comments`**: Get comments at a specific address or within an address range
-  
-  Get comments at a specific address or within an address range.
-  
-  Args:
-      address_or_symbol: Address or symbol name to get comments from (optional if using start/end)
-      start: Start address of the range
-      end: End address of the range
-      comment_types: Types of comments to retrieve (comma-separated: pre,eol,post,plate,repeatable)
-  
-  Returns:
-      JSON with comments
-
-- **`remove_comment`**: Remove a specific comment at an address
-  
-  Remove a specific comment at an address.
-  
-  Args:
-      address_or_symbol: Address or symbol name where to remove the comment
-      comment_type: Type of comment to remove: 'pre', 'eol', 'post', 'plate', or 'repeatable'
-  
-  Returns:
-      Success or failure message
-
-- **`search_comments`**: Search for comments containing specific text
-  
-  Search for comments containing specific text.
-  
-  Args:
-      search_text: Text to search for in comments
-      case_sensitive: Whether search is case sensitive
-      comment_types: Types of comments to search (comma-separated: pre,eol,post,plate,repeatable)
-      max_results: Maximum number of results to return
-  
-  Returns:
-      JSON with matching comments
-
-- **`search_decompilation`**: Search for patterns across all function decompilations in a program
-  
-  Search for patterns across all function decompilations in a program.
-  
-  Args:
-      pattern: Regular expression pattern to search for in decompiled functions
-      case_sensitive: Whether the search should be case sensitive
-      max_results: Maximum number of search results to return
-      override_max_functions_limit: Whether to override the maximum function limit for decompiler searches
-  
-  Returns:
-      JSON with search results
-
-### Vtable Analysis (C++)
-
-- **`analyze_vtable`**: Analyze virtual function table to extract function pointers
-  
-  Analyze a virtual function table (vtable) at a given address.
-  
-  Args:
-      vtable_address: Address of the vtable to analyze
-      max_entries: Maximum number of vtable entries to read (default: 200)
-  
-  Returns:
-      Vtable structure with function pointers and slot information
-
-- **`find_vtable_callers`**: Find indirect calls that could invoke a function via vtable
-  
-  Find all indirect calls that could invoke a function via its vtable slot.
-  
-  Args:
-      function_address: Address or name of the virtual function
-  
-  Returns:
-      List of potential caller sites for the virtual method
-
-- **`find_vtables_containing_function`**: Find all vtables that contain a pointer to the given function
-  
-  Find all vtables that contain a pointer to the given function.
-  
-  Args:
-      function_address: Address or name of the function to search for in vtables
-  
-  Returns:
-      JSON with vtables containing the function
-
-### Symbols & Labels
-
-- **`list_classes`**: List all namespace/class names
-  
-  List all namespace/class names in the program with pagination.
-
-- **`list_namespaces`**: List all non-global namespaces
-  
-  List all non-global namespaces in the program with pagination.
-
-- **`list_imports`**: List imported symbols
-  
-  List all imported functions from external libraries with pagination.
-  
-  Args:
-      library_filter: Optional library name to filter by (case-insensitive)
-      max_results: Maximum number of imports to return (default: 500)
-      start_index: Starting index for pagination (default: 0)
-      group_by_library: Whether to group imports by library name (default: true)
-  
-  Returns:
-      JSON with imports list or grouped by library
-
-- **`list_exports`**: List exported functions/symbols
-  
-  List all exported symbols from the binary with pagination.
-  
-  Args:
-      max_results: Maximum number of exports to return (default: 500)
-      start_index: Starting index for pagination (default: 0)
-  
-  Returns:
-      JSON with exports list
-
-- **`create_label`**: Create or update a label at an address
-  
-  Create a label at a specific address.
-  
-  Args:
-      address: Address where to create the label
-      label_name: Name for the label
-  
-  Returns:
-      Success or failure message
-
-- **`get_symbols`**: Get symbols from the selected program with pagination
-  
-  Get symbols from the selected program with pagination.
-  
-  Args:
-      include_external: Whether to include external symbols in the result
-      start_index: Starting index for pagination (0-based)
-      max_count: Maximum number of symbols to return
-      filter_default_names: Whether to filter out default Ghidra generated names
-  
-  Returns:
-      JSON with symbols
-
-- **`get_symbols_count`**: Get total count of symbols in the program
-  
-  Get the total count of symbols in the program.
-  
-  Args:
-      include_external: Whether to include external symbols in the count
-      filter_default_names: Whether to filter out default Ghidra generated names
-  
-  Returns:
-      JSON with symbol count
-
-### Function & Variable Manipulation
-
-- **`rename_function`**: Rename a function by name
-  
-  Rename a function by its current name to a new user-defined name.
-
-- **`rename_function_by_address`**: Rename a function by address
-  
-  Rename a function by its address.
-
-- **`rename_data`**: Rename a data label at an address
-  
-  Rename a data label at the specified address.
-
-- **`rename_variable`**: Rename a local variable within a function
-  
-  Rename a local variable within a function.
-
-- **`rename_variables`**: Rename multiple variables in a decompiled function
-  
-  Rename variables in a decompiled function.
-  
-  Args:
-      function_name_or_address: Function name, address, or symbol to rename variables in
-      variable_mappings: Mapping of old variable names to new variable names (format: "oldName1:newName1,oldName2:newName2")
-  
-  Returns:
-      Success or failure message
-
-- **`set_function_prototype`**: Set a function's prototype/signature
-  
-  Set a function's prototype.
-
-- **`set_local_variable_type`**: Set a local variable's data type
-  
-  Set a local variable's type.
-
-- **`change_variable_datatypes`**: Change data types of variables in a decompiled function
-  
-  Change data types of variables in a decompiled function.
-  
-  Args:
-      function_name_or_address: Function name, address, or symbol to change variable data types in
-      datatype_mappings: Mapping of variable names to new data type strings (format: "varName1:type1,varName2:type2")
-      archive_name: Optional name of the data type archive to search for data types
-  
-  Returns:
-      Success or failure message
+GhidraMCP provides **17 consolidated tools** that replace the original 90 tools through intelligent parameterization. This design reduces LLM context overhead, improves tool selection reliability, and maintains 100% feature coverage. Each tool uses enums, optional parameters, and defaults to provide flexible, powerful functionality.
+
+### 1. `get_function`
+
+Unified function retrieval tool that replaces: `decompile_function`, `decompile_function_by_address`, `get_decompilation`, `disassemble_function`, `get_function_by_address`, `get_function_info`, `list_function_calls`
+
+Get function details in various formats: decompiled code, assembly, function information, or internal calls.
+
+Args:
+    identifier: Function name or address (required) - accepts either function name or hex address (e.g., "main" or "0x401000")
+    view: View mode enum ('decompile', 'disassemble', 'info', 'calls'; default: 'decompile')
+    offset: Line number to start reading from when view='decompile' (1-based, default: 1)
+    limit: Number of lines to return when view='decompile' (default: 50)
+    include_callers: Include list of functions that call this one when view='decompile' (default: False)
+    include_callees: Include list of functions this one calls when view='decompile' (default: False)
+    include_comments: Whether to include comments in the decompilation when view='decompile' (default: False)
+    include_incoming_references: Whether to include incoming cross references when view='decompile' (default: True)
+    include_reference_context: Whether to include code context snippets from calling functions when view='decompile' (default: True)
+
+Returns:
+    - When view='decompile': JSON with decompiled C code and optional metadata
+    - When view='disassemble': List of assembly instructions (address: instruction; comment)
+    - When view='info': Detailed function information including parameters and local variables
+    - When view='calls': List of function calls made within the function
+
+### 2. `list_functions`
+
+Comprehensive function listing and search tool that replaces: `list_functions`, `list_methods`, `search_functions_by_name`, `get_functions_by_similarity`, `get_undefined_function_candidates`, `get_function_count`
+
+List, search, or count functions in the program with various filtering and search modes.
+
+Args:
+    mode: Operation mode enum ('all', 'search', 'similarity', 'undefined', 'count'; default: 'all')
+    query: Substring to search for when mode='search' (required for search mode)
+    search_string: Function name to compare against for similarity when mode='similarity' (required for similarity mode)
+    min_reference_count: Minimum number of references required when mode='undefined' (default: 1)
+    start_index: Starting index for pagination (0-based, default: 0)
+    max_count: Maximum number of functions to return (default: 100)
+    offset: Alternative pagination offset parameter (default: 0, used for backward compatibility)
+    limit: Alternative pagination limit parameter (default: 100, used for backward compatibility)
+    filter_default_names: Whether to filter out default Ghidra generated names like FUN_, DAT_, etc. (default: True)
+
+Returns:
+    - When mode='all': List of all function names with pagination
+    - When mode='search': List of functions whose name contains the query substring
+    - When mode='similarity': JSON with matching functions sorted by similarity to search_string
+    - When mode='undefined': JSON with undefined function candidates (addresses referenced but not defined as functions)
+    - When mode='count': JSON with total function count
+
+### 3. `manage_function`
+
+Function and variable manipulation tool that replaces: `create_function`, `rename_function`, `rename_function_by_address`, `rename_variable`, `rename_variables`, `set_function_prototype`, `set_local_variable_type`, `change_variable_datatypes`
+
+Create, rename, or modify functions and their variables.
+
+Args:
+    action: Action to perform enum ('create', 'rename_function', 'rename_variable', 'set_prototype', 'set_variable_type', 'change_datatypes'; required)
+    address: Address where the function should be created when action='create' (e.g., '0x401000', required for create)
+    function_identifier: Function name or address for rename/modify operations (required for rename_function, rename_variable, set_prototype, set_variable_type, change_datatypes)
+    name: New function name when action='rename_function' or optional name when action='create' (optional)
+    old_name: Old variable name when action='rename_variable' (required for rename_variable)
+    new_name: New variable name when action='rename_variable' (required for rename_variable)
+    variable_mappings: Mapping of old to new variable names when action='rename_variable' (format: "oldName1:newName1,oldName2:newName2", required for rename_variable with multiple variables)
+    prototype: Function prototype/signature string when action='set_prototype' (required for set_prototype)
+    variable_name: Variable name when action='set_variable_type' (required for set_variable_type)
+    new_type: New data type for variable when action='set_variable_type' (required for set_variable_type)
+    datatype_mappings: Mapping of variable names to new data type strings when action='change_datatypes' (format: "varName1:type1,varName2:type2", required for change_datatypes)
+    archive_name: Optional name of the data type archive to search for data types when action='change_datatypes' (optional, default: "")
+
+Returns:
+    Success or failure message for all actions
+
+### 4. `get_call_graph`
+
+Call graph and relationship analysis tool that replaces: `get_call_graph`, `get_call_tree`, `get_function_callers`, `get_function_callees`, `get_callers_decompiled`, `find_common_callers`
+
+Analyze function call relationships in various formats: bidirectional graphs, hierarchical trees, caller/callee lists, decompiled callers, or common callers.
+
+Args:
+    function_identifier: Function name or address (required)
+    mode: Analysis mode enum ('graph', 'tree', 'callers', 'callees', 'callers_decomp', 'common_callers'; default: 'graph')
+    depth: Depth of call graph to retrieve when mode='graph' (default: 1)
+    direction: Direction to traverse when mode='tree' or 'callers' or 'callees' enum ('callers', 'callees'; default: 'callees' for tree)
+    max_depth: Maximum depth to traverse when mode='tree' (default: 3, max: 10)
+    start_index: Starting index for pagination when mode='callers_decomp' (0-based, default: 0)
+    max_callers: Maximum number of calling functions to decompile when mode='callers_decomp' (default: 10)
+    include_call_context: Whether to highlight the line containing the call in each decompilation when mode='callers_decomp' (default: True)
+    function_addresses: Comma-separated list of function addresses or names when mode='common_callers' (required for common_callers mode)
+
+Returns:
+    - When mode='graph': Call graph information showing both callers and callees
+    - When mode='tree': Hierarchical call tree as formatted text
+    - When mode='callers': List of functions that call the specified function
+    - When mode='callees': List of functions called by the specified function
+    - When mode='callers_decomp': JSON with decompiled callers
+    - When mode='common_callers': List of functions that call ALL of the specified target functions
+
+### 5. `get_references`
+
+Comprehensive cross-reference analysis tool that replaces: `get_xrefs_to`, `get_xrefs_from`, `find_cross_references`, `get_function_xrefs`, `get_referencers_decompiled`, `find_import_references`, `resolve_thunk`
+
+Find and analyze references to/from addresses, symbols, functions, or imports, with optional decompilation of referencers.
+
+Args:
+    target: Target address, symbol name, function name, or import name (required)
+    mode: Reference mode enum ('to', 'from', 'both', 'function', 'referencers_decomp', 'import', 'thunk'; default: 'both')
+    direction: Direction filter when mode='both' enum ('to', 'from', 'both'; default: 'both')
+    offset: Pagination offset (default: 0)
+    limit: Maximum number of references to return (default: 100)
+    max_results: Alternative limit parameter for import mode (default: 100)
+    library_name: Optional specific library name to narrow search when mode='import' (case-insensitive, optional)
+    start_index: Starting index for pagination when mode='referencers_decomp' (0-based, default: 0)
+    max_referencers: Maximum number of referencing functions to decompile when mode='referencers_decomp' (default: 10)
+    include_ref_context: Whether to include reference line numbers in decompilation when mode='referencers_decomp' (default: True)
+    include_data_refs: Whether to include data references (reads/writes), not just calls when mode='referencers_decomp' (default: True)
+
+Returns:
+    - When mode='to': List of references TO the specified address
+    - When mode='from': List of references FROM the specified address
+    - When mode='both': List of cross-references in both directions
+    - When mode='function': List of references to the specified function by name
+    - When mode='referencers_decomp': JSON with decompiled referencers
+    - When mode='import': JSON with references to the imported function
+    - When mode='thunk': JSON with thunk chain information
+
+### 6. `analyze_data_flow`
+
+Data flow analysis tool that replaces: `trace_data_flow_backward`, `trace_data_flow_forward`, `find_variable_accesses`
+
+Trace data flow backward (origins), forward (uses), or find variable accesses within a function.
+
+Args:
+    function_address: Address of the function to analyze (required)
+    start_address: Address within the function to trace from when direction='backward' or 'forward' (required for backward/forward)
+    variable_name: Name of the variable to find accesses for when direction='variable_accesses' (required for variable_accesses)
+    direction: Analysis direction enum ('backward', 'forward', 'variable_accesses'; required)
+
+Returns:
+    - When direction='backward': Data flow information showing where values come from
+    - When direction='forward': Data flow information showing where values are used
+    - When direction='variable_accesses': List of variable accesses (reads and writes)
+
+### 7. `search_constants`
+
+Constant value search and analysis tool that replaces: `find_constant_uses`, `find_constants_in_range`, `list_common_constants`
+
+Find specific constants, constants in ranges, or list the most common constants in the program.
+
+Args:
+    mode: Search mode enum ('specific', 'range', 'common'; required)
+    value: Constant value to search for when mode='specific' (supports hex with 0x, decimal, negative; required for specific mode)
+    min_value: Minimum value when mode='range' or filter minimum when mode='common' (inclusive, supports hex/decimal; required for range mode)
+    max_value: Maximum value when mode='range' (inclusive, supports hex/decimal; required for range mode)
+    max_results: Maximum number of results to return when mode='specific' or 'range' (default: 500)
+    include_small_values: Include small values (0-255) which are often noise when mode='common' (default: False)
+    top_n: Number of most common constants to return when mode='common' (default: 50)
+
+Returns:
+    - When mode='specific': List of instructions using the constant
+    - When mode='range': List of constants found in the range with occurrence counts
+    - When mode='common': JSON with most common constants
+
+### 8. `manage_strings`
+
+String listing, searching, and analysis tool that replaces: `list_strings`, `get_strings`, `search_strings_regex`, `get_strings_count`, `get_strings_by_similarity`
+
+List, search, count, or find similar strings in the program.
+
+Args:
+    mode: Operation mode enum ('list', 'regex', 'count', 'similarity'; default: 'list')
+    pattern: Regular expression pattern to search for when mode='regex' (required for regex mode)
+    search_string: String to compare against for similarity when mode='similarity' (required for similarity mode)
+    filter: Optional filter to match within string content when mode='list' (optional)
+    start_index: Starting index for pagination when mode='list' or 'similarity' (0-based, default: 0)
+    max_count: Maximum number of strings to return when mode='list' or 'similarity' (default: 100)
+    offset: Alternative pagination offset when mode='list' (default: 0, used for backward compatibility)
+    limit: Alternative pagination limit when mode='list' (default: 2000, used for backward compatibility)
+    max_results: Maximum number of results to return when mode='regex' (default: 100)
+    include_referencing_functions: Include list of functions that reference each string when mode='list' or 'similarity' (default: False)
+
+Returns:
+    - When mode='list': JSON with strings list and pagination info, or list of strings with their addresses
+    - When mode='regex': List of strings matching the regex pattern
+    - When mode='count': Total number of defined strings
+    - When mode='similarity': JSON with matching strings sorted by similarity
+
+### 9. `inspect_memory`
+
+Memory and data inspection tool that replaces: `get_memory_blocks`, `read_memory`, `get_data_at_address`, `list_data_items`, `list_segments`
+
+Inspect memory blocks, read memory, get data information, list data items, or list memory segments.
+
+Args:
+    mode: Inspection mode enum ('blocks', 'read', 'data_at', 'data_items', 'segments'; required)
+    address: Address to read from when mode='read' or address to query when mode='data_at' (required for read/data_at modes)
+    length: Number of bytes to read when mode='read' (default: 16)
+    offset: Pagination offset when mode='data_items' or 'segments' (default: 0)
+    limit: Maximum number of items to return when mode='data_items' or 'segments' (default: 100)
+
+Returns:
+    - When mode='blocks': List of memory blocks with their properties (R/W/X, size, etc.)
+    - When mode='read': Hex dump of memory content with ASCII representation
+    - When mode='data_at': Data type, size, label, and value information
+    - When mode='data_items': List of defined data labels and their values
+    - When mode='segments': List of all memory segments in the program
+
+### 10. `manage_bookmarks`
+
+Bookmark management tool that replaces: `set_bookmark`, `get_bookmarks`, `search_bookmarks`, `remove_bookmark`, `list_bookmark_categories`
+
+Create, retrieve, search, remove bookmarks, or list bookmark categories.
+
+Args:
+    action: Action to perform enum ('set', 'get', 'search', 'remove', 'categories'; required)
+    address: Address where to set/get/remove the bookmark (required for set/remove, optional for get)
+    address_or_symbol: Address or symbol name (alternative parameter name, used for remove action)
+    type: Bookmark type enum ('Note', 'Warning', 'TODO', 'Bug', 'Analysis'; required for set/remove, optional for get/categories)
+    category: Bookmark category for organization (required for set, optional for remove)
+    comment: Bookmark comment text (required for set)
+    search_text: Text to search for in bookmark comments when action='search' (required for search)
+    max_results: Maximum number of results to return when action='search' (default: 100)
+
+Returns:
+    - When action='set': Success or failure message
+    - When action='get': List of bookmarks
+    - When action='search': List of matching bookmarks
+    - When action='remove': Success or failure message
+    - When action='categories': JSON with bookmark categories
+
+### 11. `manage_comments`
+
+Comment management and search tool that replaces: `set_decompiler_comment`, `set_disassembly_comment`, `set_decompilation_comment`, `set_comment`, `get_comments`, `remove_comment`, `search_comments`, `search_decompilation`
+
+Set, get, remove, or search comments in decompiled code, disassembly, or at addresses. Also search patterns across all decompilations.
+
+Args:
+    action: Action to perform enum ('set', 'get', 'remove', 'search', 'search_decomp'; required)
+    address: Address where to set/get/remove the comment (required for set/remove when not using function/line_number)
+    address_or_symbol: Address or symbol name (alternative parameter, used for set/get/remove)
+    function: Function name or address when setting decompilation line comment or searching decompilation (required for set with line_number, optional for search_decomp)
+    function_name_or_address: Function name or address (alternative parameter name)
+    line_number: Line number in the decompiled function when action='set' with decompilation (1-based, required for decompilation line comments)
+    comment: The comment text to set (required for set)
+    comment_type: Type of comment enum ('pre', 'eol', 'post', 'plate', 'repeatable'; default: 'eol')
+    start: Start address of the range when action='get' (optional)
+    end: End address of the range when action='get' (optional)
+    comment_types: Types of comments to retrieve/search (comma-separated: pre,eol,post,plate,repeatable; optional)
+    search_text: Text to search for in comments when action='search' (required for search)
+    pattern: Regular expression pattern to search for when action='search_decomp' (required for search_decomp)
+    case_sensitive: Whether search is case sensitive when action='search' or 'search_decomp' (default: False)
+    max_results: Maximum number of results to return when action='search' or 'search_decomp' (default: 100 for search, 50 for search_decomp)
+    override_max_functions_limit: Whether to override the maximum function limit for decompiler searches when action='search_decomp' (default: False)
+
+Returns:
+    - When action='set': Success or failure message, or JSON with success status for decompilation line comments
+    - When action='get': JSON with comments
+    - When action='remove': Success or failure message
+    - When action='search': JSON with matching comments
+    - When action='search_decomp': JSON with search results from decompiled functions
+
+### 12. `analyze_vtables`
+
+Virtual function table analysis tool that replaces: `analyze_vtable`, `find_vtable_callers`, `find_vtables_containing_function`
+
+Analyze vtables, find vtable callers, or find vtables containing a specific function.
+
+Args:
+    mode: Analysis mode enum ('analyze', 'callers', 'containing'; required)
+    vtable_address: Address of the vtable to analyze when mode='analyze' (required for analyze mode)
+    function_address: Address or name of the virtual function when mode='callers' or function to search for when mode='containing' (required for callers/containing modes)
+    max_entries: Maximum number of vtable entries to read when mode='analyze' (default: 200)
+
+Returns:
+    - When mode='analyze': Vtable structure with function pointers and slot information
+    - When mode='callers': List of potential caller sites for the virtual method
+    - When mode='containing': JSON with vtables containing the function
+
+### 13. `manage_symbols`
+
+Symbol and label management tool that replaces: `list_classes`, `list_namespaces`, `list_imports`, `list_exports`, `create_label`, `get_symbols`, `get_symbols_count`, `rename_data`
+
+List classes, namespaces, imports, exports, create labels, get symbols, count symbols, or rename data labels.
+
+Args:
+    mode: Operation mode enum ('classes', 'namespaces', 'imports', 'exports', 'create_label', 'symbols', 'count', 'rename_data'; required)
+    address: Address where to create the label when mode='create_label' or address of data to rename when mode='rename_data' (required for create_label/rename_data)
+    label_name: Name for the label when mode='create_label' (required for create_label)
+    new_name: New name for the data label when mode='rename_data' (required for rename_data)
+    library_filter: Optional library name to filter by when mode='imports' (case-insensitive, optional)
+    max_results: Maximum number of imports/exports to return when mode='imports' or 'exports' (default: 500)
+    start_index: Starting index for pagination (0-based, default: 0)
+    offset: Alternative pagination offset parameter (default: 0, used for backward compatibility)
+    limit: Alternative pagination limit parameter (default: 100, used for backward compatibility)
+    group_by_library: Whether to group imports by library name when mode='imports' (default: True)
+    include_external: Whether to include external symbols when mode='symbols' or 'count' (default: False)
+    max_count: Maximum number of symbols to return when mode='symbols' (default: 200)
+    filter_default_names: Whether to filter out default Ghidra generated names when mode='symbols' or 'count' (default: True)
+
+Returns:
+    - When mode='classes': List of all namespace/class names with pagination
+    - When mode='namespaces': List of all non-global namespaces with pagination
+    - When mode='imports': JSON with imports list or grouped by library
+    - When mode='exports': JSON with exports list
+    - When mode='create_label': Success or failure message
+    - When mode='symbols': JSON with symbols
+    - When mode='count': JSON with symbol count
+    - When mode='rename_data': Success or failure message
+
+### 14. `manage_structures`
+
+Structure management tool that replaces: `parse_c_structure`, `validate_c_structure`, `create_structure`, `add_structure_field`, `modify_structure_field`, `modify_structure_from_c`, `get_structure_info`, `list_structures`, `apply_structure`, `delete_structure`, `parse_c_header`
+
+Parse, validate, create, modify, query, list, apply, or delete structures. Also parse entire C header files.
+
+Args:
+    action: Action to perform enum ('parse', 'validate', 'create', 'add_field', 'modify_field', 'modify_from_c', 'info', 'list', 'apply', 'delete', 'parse_header'; required)
+    c_definition: C-style structure definition when action='parse', 'validate', or 'modify_from_c' (required for parse/validate/modify_from_c)
+    header_content: C header file content when action='parse_header' (required for parse_header)
+    structure_name: Name of the structure (required for add_field, modify_field, info, apply, delete; optional for list)
+    name: Name of the structure when action='create' (required for create)
+    size: Initial size when action='create' (0 for auto-sizing, default: 0)
+    type: Structure type when action='create' enum ('structure', 'union'; default: 'structure')
+    category: Category path (default: '/')
+    packed: Whether structure should be packed when action='create' (default: False)
+    description: Description of the structure when action='create' (optional)
+    field_name: Name of the field when action='add_field' or 'modify_field' (required for add_field, optional for modify_field)
+    data_type: Data type when action='add_field' (e.g., 'int', 'char[32]', required for add_field)
+    offset: Field offset when action='add_field' or 'modify_field' (optional, omit to append for add_field)
+    comment: Field comment when action='add_field' (optional)
+    new_data_type: New data type for the field when action='modify_field' (optional)
+    new_field_name: New name for the field when action='modify_field' (optional)
+    new_comment: New comment for the field when action='modify_field' (optional)
+    new_length: New length for the field when action='modify_field' (advanced, optional)
+    address_or_symbol: Address or symbol name to apply structure when action='apply' (required for apply)
+    clear_existing: Clear existing data when action='apply' (default: True)
+    force: Force deletion even if structure is referenced when action='delete' (default: False)
+    name_filter: Filter by name (substring match) when action='list' (optional)
+    include_built_in: Include built-in types when action='list' (default: False)
+
+Returns:
+    - When action='parse': JSON with created structure info
+    - When action='validate': JSON with validation result
+    - When action='create': JSON with created structure info
+    - When action='add_field': JSON with success status
+    - When action='modify_field': JSON with success status
+    - When action='modify_from_c': JSON with success status
+    - When action='info': JSON with structure info including all fields
+    - When action='list': JSON with list of structures
+    - When action='apply': JSON with success status
+    - When action='delete': JSON with success status or reference warnings
+    - When action='parse_header': JSON with created types info
 
 ### Structures
 
-- **`parse_c_structure`**: Parse and create structures from C-style definitions
-  
-  Parse and create structures from C-style definitions.
-  
-  Args:
-      c_definition: C-style structure definition
-      category: Category path (default: /)
-  
-  Returns:
-      JSON with created structure info
+### 15. `manage_data_types`
 
-- **`validate_c_structure`**: Validate C-style structure definition without creating it
-  
-  Validate C-style structure definition without creating it.
-  
-  Args:
-      c_definition: C-style structure definition to validate
-  
-  Returns:
-      JSON with validation result
+Data type management tool that replaces: `get_data_type_archives`, `get_data_types`, `get_data_type_by_string`, `apply_data_type`
 
-- **`create_structure`**: Create a new empty structure or union
-  
-  Create a new empty structure or union.
-  
-  Args:
-      name: Name of the structure
-      size: Initial size (0 for auto-sizing)
-      type: Type: 'structure' or 'union' (default: structure)
-      category: Category path (default: /)
-      packed: Whether structure should be packed
-      description: Description of the structure
-  
-  Returns:
-      JSON with created structure info
+Get data type archives, list data types, get data type by string representation, or apply data types to addresses/symbols.
 
-- **`add_structure_field`**: Add a field to an existing structure
-  
-  Add a field to an existing structure.
-  
-  Args:
-      structure_name: Name of the structure
-      field_name: Name of the field
-      data_type: Data type (e.g., 'int', 'char[32]')
-      offset: Offset (for structures, omit to append)
-      comment: Field comment
-      
-  Returns:
-      JSON with success status
+Args:
+    action: Action to perform enum ('archives', 'list', 'by_string', 'apply'; required)
+    archive_name: Name of the data type archive when action='list', 'by_string', or 'apply' (required for list, optional for by_string/apply)
+    category_path: Path to category to list data types from when action='list' (e.g., '/Structure', use '/' for root, default: '/')
+    include_subcategories: Whether to include data types from subcategories when action='list' (default: False)
+    start_index: Starting index for pagination when action='list' (0-based, default: 0)
+    max_count: Maximum number of data types to return when action='list' (default: 100)
+    data_type_string: String representation of the data type when action='by_string' or 'apply' (e.g., 'char**', 'int[10]', required for by_string/apply)
+    address_or_symbol: Address or symbol name to apply the data type to when action='apply' (required for apply)
 
-- **`modify_structure_field`**: Modify an existing field in a structure
-  
-  Modify an existing field in a structure.
-  
-  Args:
-      structure_name: Name of the structure
-      field_name: Name of the field to modify (use this OR offset)
-      offset: Offset of the field to modify (use this OR fieldName)
-      new_data_type: New data type for the field
-      new_field_name: New name for the field
-      new_comment: New comment for the field
-      new_length: New length for the field (advanced)
-      
-  Returns:
-      JSON with success status
-
-- **`modify_structure_from_c`**: Modify an existing structure using a C-style definition
-  
-  Modify an existing structure using a C-style definition.
-  
-  Args:
-      c_definition: Complete C structure definition with modifications
-      
-  Returns:
-      JSON with success status
-
-- **`get_structure_info`**: Get detailed information about a structure
-  
-  Get detailed information about a structure.
-  
-  Args:
-      structure_name: Name of the structure
-      
-  Returns:
-      JSON with structure info including all fields
-
-- **`list_structures`**: List all structures in a program
-  
-  List all structures in a program.
-  
-  Args:
-      category: Filter by category path
-      name_filter: Filter by name (substring match)
-      include_built_in: Include built-in types
-      
-  Returns:
-      JSON with list of structures
-
-- **`apply_structure`**: Apply a structure at a specific address
-  
-  Apply a structure at a specific address.
-  
-  Args:
-      structure_name: Name of the structure
-      address_or_symbol: Address or symbol name to apply structure
-      clear_existing: Clear existing data
-      
-  Returns:
-      JSON with success status
-
-- **`delete_structure`**: Delete a structure from the program
-  
-  Delete a structure from the program.
-  
-  Args:
-      structure_name: Name of the structure to delete
-      force: Force deletion even if structure is referenced (default: false)
-      
-  Returns:
-      JSON with success status or reference warnings
-
-- **`parse_c_header`**: Parse an entire C header file and create all structures
-  
-  Parse an entire C header file and create all structures.
-  
-  Args:
-      header_content: C header file content
-      category: Category path (default: /)
-      
-  Returns:
-      JSON with created types info
+Returns:
+    - When action='archives': JSON with data type archives
+    - When action='list': JSON with data types
+    - When action='by_string': JSON with data type information
+    - When action='apply': Success or failure message
 
 ### Data Types
 
-- **`get_data_type_archives`**: Get data type archives for a specific program
-  
-  Get data type archives for a specific program.
-  
-  Returns:
-      JSON with data type archives
+### 16. `get_current_context`
 
-- **`get_data_types`**: Get data types from a data type archive
-  
-  Get data types from a data type archive.
-  
-  Args:
-      archive_name: Name of the data type archive
-      category_path: Path to category to list data types from (e.g., '/Structure'). Use '/' for root category.
-      include_subcategories: Whether to include data types from subcategories
-      start_index: Starting index for pagination (0-based)
-      max_count: Maximum number of data types to return
-  
-  Returns:
-      JSON with data types
+Current context retrieval tool that replaces: `get_current_address`, `get_current_function`
 
-- **`get_data_type_by_string`**: Get a data type by its string representation
-  
-  Get a data type by its string representation.
-  
-  Args:
-      data_type_string: String representation of the data type (e.g., 'char**', 'int[10]')
-      archive_name: Optional name of the data type archive to search in
-  
-  Returns:
-      JSON with data type information
+Get the address or function currently selected in the Ghidra GUI.
 
-- **`apply_data_type`**: Apply a data type to a specific address or symbol
-  
-  Apply a data type to a specific address or symbol in a program.
-  
-  Args:
-      address_or_symbol: Address or symbol name to apply the data type to
-      data_type_string: String representation of the data type (e.g., 'char**', 'int[10]')
-      archive_name: Optional name of the data type archive to search in
-  
-  Returns:
-      Success or failure message
+Args:
+    mode: Context mode enum ('address', 'function', 'both'; default: 'both')
+
+Returns:
+    - When mode='address': The address currently selected by the user
+    - When mode='function': The function currently selected by the user
+    - When mode='both': JSON with both current address and function
 
 ### Current Context
 
-- **`get_current_address`**: Get the address currently selected in Ghidra GUI
-  
-  Get the address currently selected by the user.
+### 17. `manage_function_tags`
 
-- **`get_current_function`**: Get the function currently selected in Ghidra GUI
-  
-  Get the function currently selected by the user.
+Function tag management tool that replaces: `function_tags`
 
-### Function Tags
+Manage function tags to categorize functions (e.g., 'AI', 'rendering'). Tags can be retrieved, set, added, removed, or listed.
 
-- **`function_tags`**: Manage function tags (get, set, add, remove, list) to categorize functions
-  
-  Manage function tags. Tags categorize functions (e.g., 'AI', 'rendering').
-  
-  Args:
-      function: Function name or address (required for get/set/add/remove modes)
-      mode: Operation: 'get' (tags on function), 'set' (replace), 'add', 'remove', 'list' (all tags in program)
-      tags: Tag names (required for add; optional for set/remove). Comma-separated.
-  
-  Returns:
-      JSON with tag information or success message
+Args:
+    function: Function name or address (required for get/set/add/remove modes, not required for list mode)
+    mode: Operation mode enum ('get', 'set', 'add', 'remove', 'list'; required)
+    tags: Tag names (required for add mode; optional for set/remove modes). Comma-separated format (e.g., "AI,rendering,encryption")
+
+Returns:
+    - When mode='get': JSON with tag information for the specified function
+    - When mode='set': Success message after replacing all tags on the function
+    - When mode='add': Success message after adding tags to the function
+    - When mode='remove': Success message after removing tags from the function
+    - When mode='list': JSON with all tags in the program
+
+---
+
+## 📊 Tool Consolidation Summary
+
+The 17 consolidated tools above replace all 90 original tools while maintaining 100% feature coverage:
+
+- **Function Analysis**: `get_function`, `list_functions`, `manage_function`
+- **Call Analysis**: `get_call_graph`, `get_references`
+- **Data Analysis**: `analyze_data_flow`, `search_constants`, `manage_strings`, `inspect_memory`
+- **Annotations**: `manage_bookmarks`, `manage_comments`
+- **Advanced Analysis**: `analyze_vtables`
+- **Symbol Management**: `manage_symbols`
+- **Structure Management**: `manage_structures`
+- **Type Management**: `manage_data_types`
+- **Context & Tags**: `get_current_context`, `manage_function_tags`
+
+Each tool uses mode/action enums and optional parameters to provide the same functionality as multiple original tools, reducing LLM context size and improving tool selection reliability.
 
 ## 💡 Usage Tips
 
