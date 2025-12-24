@@ -6095,7 +6095,7 @@ public class GhidraMCPPlugin extends Plugin {
                 // Delete structure
                 DataType dt = dtm.getDataType(new CategoryPath("/"), structureName);
                 if (dt != null) {
-                    dtm.remove(dt, force);
+                    dtm.remove(dt, TaskMonitor.DUMMY);
                     return "{\"success\":true,\"message\":\"Structure deleted\"}";
                 }
                 return "{\"success\":false,\"message\":\"Structure not found\"}";
