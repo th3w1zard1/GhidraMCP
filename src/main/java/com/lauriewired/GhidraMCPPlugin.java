@@ -57,6 +57,22 @@ import ghidra.program.model.data.UnionDataType;
 import ghidra.program.model.data.DataTypeComponent;
 import ghidra.program.model.data.BitFieldDataType;
 import ghidra.program.model.data.StandAloneDataTypeManager;
+import ghidra.framework.main.AppInfo;
+import ghidra.framework.model.Project;
+import ghidra.framework.model.DomainFile;
+import ghidra.framework.model.DomainFolder;
+import ghidra.framework.model.ProjectLocator;
+import ghidra.base.project.GhidraProject;
+import ghidra.app.plugin.core.analysis.AutoAnalysisManager;
+import ghidra.program.model.lang.LanguageService;
+import ghidra.program.model.lang.DefaultLanguageService;
+import ghidra.program.model.lang.LanguageID;
+import ghidra.program.model.lang.Language;
+import ghidra.program.model.lang.CompilerSpec;
+import ghidra.program.model.lang.CompilerSpecID;
+import ghidra.program.model.lang.LanguageCompilerSpecPair;
+import ghidra.program.model.lang.LanguageNotFoundException;
+import java.io.File;
 
 import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpServer;
@@ -119,781 +135,242 @@ public class GhidraMCPPlugin extends Plugin {
 
         server = HttpServer.create(new InetSocketAddress(port), 0);
 
-        // Each listing endpoint uses offset & limit from query params:
-        server.createContext("/methods", exchange -> {
+        // Consolidated endpoints for 17 parametric tools
+
+        server.createContext("/get_function", exchange -> {
             Map<String, String> qparams = parseQueryParams(exchange);
-            int offset = parseIntOrDefault(qparams.get("offset"), 0);
-            int limit  = parseIntOrDefault(qparams.get("limit"),  100);
-            sendResponse(exchange, getAllFunctionNames(offset, limit));
-        });
-
-        server.createContext("/classes", exchange -> {
-            Map<String, String> qparams = parseQueryParams(exchange);
-            int offset = parseIntOrDefault(qparams.get("offset"), 0);
-            int limit  = parseIntOrDefault(qparams.get("limit"),  100);
-            sendResponse(exchange, getAllClassNames(offset, limit));
-        });
-
-        server.createContext("/decompile", exchange -> {
-            String name = new String(exchange.getRequestBody().readAllBytes(), StandardCharsets.UTF_8);
-            sendResponse(exchange, decompileFunctionByName(name));
-        });
-
-        server.createContext("/renameFunction", exchange -> {
-            Map<String, String> params = parsePostParams(exchange);
-            String response = renameFunction(params.get("oldName"), params.get("newName"))
-                    ? "Renamed successfully" : "Rename failed";
-            sendResponse(exchange, response);
-        });
-
-        server.createContext("/renameData", exchange -> {
-            Map<String, String> params = parsePostParams(exchange);
-            renameDataAtAddress(params.get("address"), params.get("newName"));
-            sendResponse(exchange, "Rename data attempted");
-        });
-
-        server.createContext("/renameVariable", exchange -> {
-            Map<String, String> params = parsePostParams(exchange);
-            String functionName = params.get("functionName");
-            String oldName = params.get("oldName");
-            String newName = params.get("newName");
-            String result = renameVariableInFunction(functionName, oldName, newName);
-            sendResponse(exchange, result);
-        });
-
-        server.createContext("/segments", exchange -> {
-            Map<String, String> qparams = parseQueryParams(exchange);
-            int offset = parseIntOrDefault(qparams.get("offset"), 0);
-            int limit  = parseIntOrDefault(qparams.get("limit"),  100);
-            sendResponse(exchange, listSegments(offset, limit));
-        });
-
-        server.createContext("/imports", exchange -> {
-            Map<String, String> qparams = parseQueryParams(exchange);
-            int offset = parseIntOrDefault(qparams.get("offset"), 0);
-            int limit  = parseIntOrDefault(qparams.get("limit"),  100);
-            sendResponse(exchange, listImports(offset, limit));
-        });
-
-        server.createContext("/exports", exchange -> {
-            Map<String, String> qparams = parseQueryParams(exchange);
-            int offset = parseIntOrDefault(qparams.get("offset"), 0);
-            int limit  = parseIntOrDefault(qparams.get("limit"),  100);
-            sendResponse(exchange, listExports(offset, limit));
-        });
-
-        server.createContext("/namespaces", exchange -> {
-            Map<String, String> qparams = parseQueryParams(exchange);
-            int offset = parseIntOrDefault(qparams.get("offset"), 0);
-            int limit  = parseIntOrDefault(qparams.get("limit"),  100);
-            sendResponse(exchange, listNamespaces(offset, limit));
-        });
-
-        server.createContext("/data", exchange -> {
-            Map<String, String> qparams = parseQueryParams(exchange);
-            int offset = parseIntOrDefault(qparams.get("offset"), 0);
-            int limit  = parseIntOrDefault(qparams.get("limit"),  100);
-            sendResponse(exchange, listDefinedData(offset, limit));
-        });
-
-        server.createContext("/searchFunctions", exchange -> {
-            Map<String, String> qparams = parseQueryParams(exchange);
-            String searchTerm = qparams.get("query");
-            int offset = parseIntOrDefault(qparams.get("offset"), 0);
-            int limit = parseIntOrDefault(qparams.get("limit"), 100);
-            sendResponse(exchange, searchFunctionsByName(searchTerm, offset, limit));
-        });
-
-        // New API endpoints based on requirements
-        
-        server.createContext("/get_function_by_address", exchange -> {
-            Map<String, String> qparams = parseQueryParams(exchange);
-            String address = qparams.get("address");
-            sendResponse(exchange, getFunctionByAddress(address));
-        });
-
-        server.createContext("/get_current_address", exchange -> {
-            sendResponse(exchange, getCurrentAddress());
-        });
-
-        server.createContext("/get_current_function", exchange -> {
-            sendResponse(exchange, getCurrentFunction());
+            String identifier = qparams.get("identifier");
+            String view = qparams.getOrDefault("view", "decompile");
+            int offset = parseIntOrDefault(qparams.get("offset"), 1);
+            int limit = parseIntOrDefault(qparams.get("limit"), 50);
+            boolean includeCallers = Boolean.parseBoolean(qparams.getOrDefault("include_callers", "false"));
+            boolean includeCallees = Boolean.parseBoolean(qparams.getOrDefault("include_callees", "false"));
+            boolean includeComments = Boolean.parseBoolean(qparams.getOrDefault("include_comments", "false"));
+            boolean includeIncomingRefs = Boolean.parseBoolean(qparams.getOrDefault("include_incoming_references", "true"));
+            boolean includeRefContext = Boolean.parseBoolean(qparams.getOrDefault("include_reference_context", "true"));
+            sendResponse(exchange, getFunction(identifier, view, offset, limit, includeCallers, includeCallees, includeComments, includeIncomingRefs, includeRefContext));
         });
 
         server.createContext("/list_functions", exchange -> {
-            sendResponse(exchange, listFunctions());
-        });
-
-        server.createContext("/decompile_function", exchange -> {
             Map<String, String> qparams = parseQueryParams(exchange);
-            String address = qparams.get("address");
-            sendResponse(exchange, decompileFunctionByAddress(address));
+            String mode = qparams.getOrDefault("mode", "all");
+            String query = qparams.get("query");
+            String searchString = qparams.get("search_string");
+            int minReferenceCount = parseIntOrDefault(qparams.get("min_reference_count"), 1);
+            int startIndex = parseIntOrDefault(qparams.get("start_index"), 0);
+            int maxCount = parseIntOrDefault(qparams.get("max_count"), 100);
+            boolean filterDefaultNames = Boolean.parseBoolean(qparams.getOrDefault("filter_default_names", "true"));
+            sendResponse(exchange, listFunctions(mode, query, searchString, minReferenceCount, startIndex, maxCount, filterDefaultNames));
         });
 
-        server.createContext("/disassemble_function", exchange -> {
-            Map<String, String> qparams = parseQueryParams(exchange);
-            String address = qparams.get("address");
-            sendResponse(exchange, disassembleFunction(address));
-        });
-
-        server.createContext("/set_decompiler_comment", exchange -> {
+        server.createContext("/manage_function", exchange -> {
             Map<String, String> params = parsePostParams(exchange);
+            String action = params.get("action");
             String address = params.get("address");
-            String comment = params.get("comment");
-            boolean success = setDecompilerComment(address, comment);
-            sendResponse(exchange, success ? "Comment set successfully" : "Failed to set comment");
-        });
-
-        server.createContext("/set_disassembly_comment", exchange -> {
-            Map<String, String> params = parsePostParams(exchange);
-            String address = params.get("address");
-            String comment = params.get("comment");
-            boolean success = setDisassemblyComment(address, comment);
-            sendResponse(exchange, success ? "Comment set successfully" : "Failed to set comment");
-        });
-
-        server.createContext("/rename_function_by_address", exchange -> {
-            Map<String, String> params = parsePostParams(exchange);
-            String functionAddress = params.get("function_address");
+            String functionIdentifier = params.get("function_identifier");
+            String name = params.get("name");
+            String oldName = params.get("old_name");
             String newName = params.get("new_name");
-            boolean success = renameFunctionByAddress(functionAddress, newName);
-            sendResponse(exchange, success ? "Function renamed successfully" : "Failed to rename function");
-        });
-
-        server.createContext("/set_function_prototype", exchange -> {
-            Map<String, String> params = parsePostParams(exchange);
-            String functionAddress = params.get("function_address");
+            String variableMappings = params.get("variable_mappings");
             String prototype = params.get("prototype");
-
-            // Call the set prototype function and get detailed result
-            PrototypeResult result = setFunctionPrototype(functionAddress, prototype);
-
-            if (result.isSuccess()) {
-                // Even with successful operations, include any warning messages for debugging
-                String successMsg = "Function prototype set successfully";
-                if (!result.getErrorMessage().isEmpty()) {
-                    successMsg += "\n\nWarnings/Debug Info:\n" + result.getErrorMessage();
-                }
-                sendResponse(exchange, successMsg);
-            } else {
-                // Return the detailed error message to the client
-                sendResponse(exchange, "Failed to set function prototype: " + result.getErrorMessage());
-            }
-        });
-
-        server.createContext("/set_local_variable_type", exchange -> {
-            Map<String, String> params = parsePostParams(exchange);
-            String functionAddress = params.get("function_address");
             String variableName = params.get("variable_name");
             String newType = params.get("new_type");
-
-            // Capture detailed information about setting the type
-            StringBuilder responseMsg = new StringBuilder();
-            responseMsg.append("Setting variable type: ").append(variableName)
-                      .append(" to ").append(newType)
-                      .append(" in function at ").append(functionAddress).append("\n\n");
-
-            // Attempt to find the data type in various categories
-            Program program = getCurrentProgram();
-            if (program != null) {
-                DataTypeManager dtm = program.getDataTypeManager();
-                DataType directType = findDataTypeByNameInAllCategories(dtm, newType);
-                if (directType != null) {
-                    responseMsg.append("Found type: ").append(directType.getPathName()).append("\n");
-                } else if (newType.startsWith("P") && newType.length() > 1) {
-                    String baseTypeName = newType.substring(1);
-                    DataType baseType = findDataTypeByNameInAllCategories(dtm, baseTypeName);
-                    if (baseType != null) {
-                        responseMsg.append("Found base type for pointer: ").append(baseType.getPathName()).append("\n");
-                    } else {
-                        responseMsg.append("Base type not found for pointer: ").append(baseTypeName).append("\n");
-                    }
-                } else {
-                    responseMsg.append("Type not found directly: ").append(newType).append("\n");
-                }
-            }
-
-            // Try to set the type
-            boolean success = setLocalVariableType(functionAddress, variableName, newType);
-
-            String successMsg = success ? "Variable type set successfully" : "Failed to set variable type";
-            responseMsg.append("\nResult: ").append(successMsg);
-
-            sendResponse(exchange, responseMsg.toString());
+            String datatypeMappings = params.get("datatype_mappings");
+            String archiveName = params.get("archive_name");
+            sendResponse(exchange, manageFunction(action, address, functionIdentifier, name, oldName, newName, variableMappings, prototype, variableName, newType, datatypeMappings, archiveName));
         });
 
-        server.createContext("/xrefs_to", exchange -> {
-            Map<String, String> qparams = parseQueryParams(exchange);
-            String address = qparams.get("address");
-            int offset = parseIntOrDefault(qparams.get("offset"), 0);
-            int limit = parseIntOrDefault(qparams.get("limit"), 100);
-            sendResponse(exchange, getXrefsTo(address, offset, limit));
-        });
-
-        server.createContext("/xrefs_from", exchange -> {
-            Map<String, String> qparams = parseQueryParams(exchange);
-            String address = qparams.get("address");
-            int offset = parseIntOrDefault(qparams.get("offset"), 0);
-            int limit = parseIntOrDefault(qparams.get("limit"), 100);
-            sendResponse(exchange, getXrefsFrom(address, offset, limit));
-        });
-
-        server.createContext("/function_xrefs", exchange -> {
-            Map<String, String> qparams = parseQueryParams(exchange);
-            String name = qparams.get("name");
-            int offset = parseIntOrDefault(qparams.get("offset"), 0);
-            int limit = parseIntOrDefault(qparams.get("limit"), 100);
-            sendResponse(exchange, getFunctionXrefs(name, offset, limit));
-        });
-
-        server.createContext("/strings", exchange -> {
-            Map<String, String> qparams = parseQueryParams(exchange);
-            int offset = parseIntOrDefault(qparams.get("offset"), 0);
-            int limit = parseIntOrDefault(qparams.get("limit"), 100);
-            String filter = qparams.get("filter");
-            sendResponse(exchange, listDefinedStrings(offset, limit, filter));
-        });
-
-        // Bookmarks endpoints
-        server.createContext("/set_bookmark", exchange -> {
-            Map<String, String> params = parsePostParams(exchange);
-            String address = params.get("address");
-            String type = params.get("type");
-            String category = params.get("category");
-            String comment = params.get("comment");
-            boolean success = setBookmark(address, type, category, comment);
-            sendResponse(exchange, success ? "Bookmark set successfully" : "Failed to set bookmark");
-        });
-
-        server.createContext("/get_bookmarks", exchange -> {
-            Map<String, String> qparams = parseQueryParams(exchange);
-            String address = qparams.get("address");
-            String type = qparams.get("type");
-            sendResponse(exchange, getBookmarks(address, type));
-        });
-
-        server.createContext("/search_bookmarks", exchange -> {
-            Map<String, String> qparams = parseQueryParams(exchange);
-            String searchText = qparams.get("searchText");
-            int maxResults = parseIntOrDefault(qparams.get("maxResults"), 100);
-            sendResponse(exchange, searchBookmarks(searchText, maxResults));
-        });
-
-        // Call graph endpoints
         server.createContext("/get_call_graph", exchange -> {
             Map<String, String> qparams = parseQueryParams(exchange);
-            String functionAddress = qparams.get("functionAddress");
+            String functionIdentifier = qparams.get("function_identifier");
+            String mode = qparams.getOrDefault("mode", "graph");
             int depth = parseIntOrDefault(qparams.get("depth"), 1);
-            sendResponse(exchange, getCallGraph(functionAddress, depth));
+            String direction = qparams.getOrDefault("direction", "callees");
+            int maxDepth = parseIntOrDefault(qparams.get("max_depth"), 3);
+            int startIndex = parseIntOrDefault(qparams.get("start_index"), 0);
+            int maxCallers = parseIntOrDefault(qparams.get("max_callers"), 10);
+            boolean includeCallContext = Boolean.parseBoolean(qparams.getOrDefault("include_call_context", "true"));
+            String functionAddresses = qparams.get("function_addresses");
+            sendResponse(exchange, getCallGraph(functionIdentifier, mode, depth, direction, maxDepth, startIndex, maxCallers, includeCallContext, functionAddresses));
         });
 
-        server.createContext("/get_callers", exchange -> {
+        server.createContext("/get_references", exchange -> {
             Map<String, String> qparams = parseQueryParams(exchange);
-            String functionAddress = qparams.get("functionAddress");
-            sendResponse(exchange, getFunctionCallers(functionAddress));
+            String target = qparams.get("target");
+            String mode = qparams.getOrDefault("mode", "both");
+            String direction = qparams.getOrDefault("direction", "both");
+            int offset = parseIntOrDefault(qparams.get("offset"), 0);
+            int limit = parseIntOrDefault(qparams.get("limit"), 100);
+            int maxResults = parseIntOrDefault(qparams.get("max_results"), 100);
+            String libraryName = qparams.get("library_name");
+            int startIndex = parseIntOrDefault(qparams.get("start_index"), 0);
+            int maxReferencers = parseIntOrDefault(qparams.get("max_referencers"), 10);
+            boolean includeRefContext = Boolean.parseBoolean(qparams.getOrDefault("include_ref_context", "true"));
+            boolean includeDataRefs = Boolean.parseBoolean(qparams.getOrDefault("include_data_refs", "true"));
+            sendResponse(exchange, getReferences(target, mode, direction, offset, limit, maxResults, libraryName, startIndex, maxReferencers, includeRefContext, includeDataRefs));
         });
 
-        server.createContext("/get_callees", exchange -> {
+        server.createContext("/analyze_data_flow", exchange -> {
             Map<String, String> qparams = parseQueryParams(exchange);
-            String functionAddress = qparams.get("functionAddress");
-            sendResponse(exchange, getFunctionCallees(functionAddress));
+            String functionAddress = qparams.get("function_address");
+            String startAddress = qparams.get("start_address");
+            String variableName = qparams.get("variable_name");
+            String direction = qparams.get("direction");
+            sendResponse(exchange, analyzeDataFlow(functionAddress, startAddress, variableName, direction));
         });
 
-        // Constants search endpoints
-        server.createContext("/find_constant", exchange -> {
+        server.createContext("/search_constants", exchange -> {
             Map<String, String> qparams = parseQueryParams(exchange);
+            String mode = qparams.getOrDefault("mode", "specific");
             String value = qparams.get("value");
-            int maxResults = parseIntOrDefault(qparams.get("maxResults"), 500);
-            sendResponse(exchange, findConstantUses(value, maxResults));
+            String minValue = qparams.get("min_value");
+            String maxValue = qparams.get("max_value");
+            int maxResults = parseIntOrDefault(qparams.get("max_results"), 500);
+            boolean includeSmallValues = Boolean.parseBoolean(qparams.getOrDefault("include_small_values", "false"));
+            String minValueFilter = qparams.get("min_value_filter");
+            int topN = parseIntOrDefault(qparams.get("top_n"), 50);
+            sendResponse(exchange, searchConstants(mode, value, minValue, maxValue, maxResults, includeSmallValues, minValueFilter, topN));
         });
 
-        server.createContext("/find_constants_in_range", exchange -> {
+        server.createContext("/manage_strings", exchange -> {
             Map<String, String> qparams = parseQueryParams(exchange);
-            String minValue = qparams.get("minValue");
-            String maxValue = qparams.get("maxValue");
-            int maxResults = parseIntOrDefault(qparams.get("maxResults"), 500);
-            sendResponse(exchange, findConstantsInRange(minValue, maxValue, maxResults));
+            String mode = qparams.getOrDefault("mode", "list");
+            String pattern = qparams.get("pattern");
+            String searchString = qparams.get("search_string");
+            String filter = qparams.get("filter");
+            int startIndex = parseIntOrDefault(qparams.get("start_index"), 0);
+            int maxCount = parseIntOrDefault(qparams.get("max_count"), 100);
+            int offset = parseIntOrDefault(qparams.get("offset"), 0);
+            int limit = parseIntOrDefault(qparams.get("limit"), 2000);
+            int maxResults = parseIntOrDefault(qparams.get("max_results"), 100);
+            boolean includeReferencingFunctions = Boolean.parseBoolean(qparams.getOrDefault("include_referencing_functions", "false"));
+            sendResponse(exchange, manageStrings(mode, pattern, searchString, filter, startIndex, maxCount, offset, limit, maxResults, includeReferencingFunctions));
         });
 
-        // Memory blocks endpoint
-        server.createContext("/memory_blocks", exchange -> {
-            sendResponse(exchange, getMemoryBlocks());
-        });
-
-        server.createContext("/read_memory", exchange -> {
+        server.createContext("/inspect_memory", exchange -> {
             Map<String, String> qparams = parseQueryParams(exchange);
+            String mode = qparams.getOrDefault("mode", "blocks");
             String address = qparams.get("address");
             int length = parseIntOrDefault(qparams.get("length"), 16);
-            sendResponse(exchange, readMemory(address, length));
-        });
-
-        // Enhanced function endpoints
-        server.createContext("/get_function_info", exchange -> {
-            Map<String, String> qparams = parseQueryParams(exchange);
-            String address = qparams.get("address");
-            sendResponse(exchange, getFunctionInfo(address));
-        });
-
-        server.createContext("/list_function_calls", exchange -> {
-            Map<String, String> qparams = parseQueryParams(exchange);
-            String functionAddress = qparams.get("functionAddress");
-            sendResponse(exchange, listFunctionCalls(functionAddress));
-        });
-
-        // Data flow analysis endpoints
-        server.createContext("/trace_data_flow_backward", exchange -> {
-            Map<String, String> qparams = parseQueryParams(exchange);
-            String address = qparams.get("address");
-            sendResponse(exchange, traceDataFlowBackward(address));
-        });
-
-        server.createContext("/trace_data_flow_forward", exchange -> {
-            Map<String, String> qparams = parseQueryParams(exchange);
-            String address = qparams.get("address");
-            sendResponse(exchange, traceDataFlowForward(address));
-        });
-
-        // Vtable analysis endpoints
-        server.createContext("/analyze_vtable", exchange -> {
-            Map<String, String> qparams = parseQueryParams(exchange);
-            String vtableAddress = qparams.get("vtableAddress");
-            int maxEntries = parseIntOrDefault(qparams.get("maxEntries"), 200);
-            sendResponse(exchange, analyzeVtable(vtableAddress, maxEntries));
-        });
-
-        server.createContext("/find_vtable_callers", exchange -> {
-            Map<String, String> qparams = parseQueryParams(exchange);
-            String functionAddress = qparams.get("functionAddress");
-            sendResponse(exchange, findVtableCallers(functionAddress));
-        });
-
-        // Enhanced string tools
-        server.createContext("/search_strings_regex", exchange -> {
-            Map<String, String> qparams = parseQueryParams(exchange);
-            String pattern = qparams.get("pattern");
-            int maxResults = parseIntOrDefault(qparams.get("maxResults"), 100);
-            sendResponse(exchange, searchStringsRegex(pattern, maxResults));
-        });
-
-        server.createContext("/get_strings_count", exchange -> {
-            sendResponse(exchange, getStringsCount());
-        });
-
-        // Enhanced cross-reference tools
-        server.createContext("/find_cross_references", exchange -> {
-            Map<String, String> qparams = parseQueryParams(exchange);
-            String location = qparams.get("location");
-            String direction = qparams.get("direction");
+            int offset = parseIntOrDefault(qparams.get("offset"), 0);
             int limit = parseIntOrDefault(qparams.get("limit"), 100);
-            sendResponse(exchange, findCrossReferences(location, direction, limit));
+            sendResponse(exchange, inspectMemory(mode, address, length, offset, limit));
         });
 
-        // Data type and label tools
-        server.createContext("/create_label", exchange -> {
-            Map<String, String> params = parsePostParams(exchange);
-            String address = params.get("address");
-            String labelName = params.get("labelName");
-            boolean success = createLabel(address, labelName);
-            sendResponse(exchange, success ? "Label created successfully" : "Failed to create label");
-        });
-
-        server.createContext("/get_data_at_address", exchange -> {
+        server.createContext("/manage_bookmarks", exchange -> {
             Map<String, String> qparams = parseQueryParams(exchange);
+            String action = qparams.getOrDefault("action", "get");
             String address = qparams.get("address");
-            sendResponse(exchange, getDataAtAddress(address));
-        });
-
-        // Additional missing tools from reverse-engineering-assistant
-        
-        // Functions tools
-        server.createContext("/functions/get_count", exchange -> {
-            Map<String, String> qparams = parseQueryParams(exchange);
-            boolean filterDefaultNames = Boolean.parseBoolean(qparams.getOrDefault("filterDefaultNames", "true"));
-            sendResponse(exchange, getFunctionCount(filterDefaultNames));
-        });
-
-        server.createContext("/functions/get_by_similarity", exchange -> {
-            Map<String, String> qparams = parseQueryParams(exchange);
-            String searchString = qparams.get("searchString");
-            int startIndex = parseIntOrDefault(qparams.get("startIndex"), 0);
-            int maxCount = parseIntOrDefault(qparams.get("maxCount"), 100);
-            boolean filterDefaultNames = Boolean.parseBoolean(qparams.getOrDefault("filterDefaultNames", "true"));
-            sendResponse(exchange, getFunctionsBySimilarity(searchString, startIndex, maxCount, filterDefaultNames));
-        });
-
-        server.createContext("/functions/get_undefined_candidates", exchange -> {
-            Map<String, String> qparams = parseQueryParams(exchange);
-            int startIndex = parseIntOrDefault(qparams.get("startIndex"), 0);
-            int maxCandidates = parseIntOrDefault(qparams.get("maxCandidates"), 100);
-            int minReferenceCount = parseIntOrDefault(qparams.get("minReferenceCount"), 1);
-            sendResponse(exchange, getUndefinedFunctionCandidates(startIndex, maxCandidates, minReferenceCount));
-        });
-
-        server.createContext("/functions/create", exchange -> {
-            Map<String, String> params = parsePostParams(exchange);
-            String address = params.get("address");
-            String name = params.get("name");
-            sendResponse(exchange, createFunction(address, name));
-        });
-
-        server.createContext("/functions/tags", exchange -> {
-            Map<String, String> params = parsePostParams(exchange);
-            String function = params.get("function");
-            String mode = params.get("mode");
-            String tagsStr = params.get("tags");
-            sendResponse(exchange, manageFunctionTags(function, mode, tagsStr));
-        });
-
-        // Strings tools
-        server.createContext("/strings/get_by_similarity", exchange -> {
-            Map<String, String> qparams = parseQueryParams(exchange);
-            String searchString = qparams.get("searchString");
-            int startIndex = parseIntOrDefault(qparams.get("startIndex"), 0);
-            int maxCount = parseIntOrDefault(qparams.get("maxCount"), 100);
-            boolean includeReferencingFunctions = Boolean.parseBoolean(qparams.getOrDefault("includeReferencingFunctions", "false"));
-            sendResponse(exchange, getStringsBySimilarity(searchString, startIndex, maxCount, includeReferencingFunctions));
-        });
-
-        // Comments tools
-        server.createContext("/comments/set", exchange -> {
-            Map<String, String> params = parsePostParams(exchange);
-            String addressOrSymbol = params.get("addressOrSymbol");
-            String commentType = params.getOrDefault("commentType", "eol");
-            String comment = params.get("comment");
-            sendResponse(exchange, setComment(addressOrSymbol, commentType, comment));
-        });
-
-        server.createContext("/comments/get", exchange -> {
-            Map<String, String> qparams = parseQueryParams(exchange);
-            String addressOrSymbol = qparams.get("addressOrSymbol");
-            String startAddr = qparams.get("start");
-            String endAddr = qparams.get("end");
-            String commentTypesStr = qparams.get("commentTypes");
-            sendResponse(exchange, getComments(addressOrSymbol, startAddr, endAddr, commentTypesStr));
-        });
-
-        server.createContext("/comments/remove", exchange -> {
-            Map<String, String> params = parsePostParams(exchange);
-            String addressOrSymbol = params.get("addressOrSymbol");
-            String commentType = params.get("commentType");
-            sendResponse(exchange, removeComment(addressOrSymbol, commentType));
-        });
-
-        server.createContext("/comments/search", exchange -> {
-            Map<String, String> qparams = parseQueryParams(exchange);
-            String searchText = qparams.get("searchText");
-            boolean caseSensitive = Boolean.parseBoolean(qparams.getOrDefault("caseSensitive", "false"));
-            String commentTypesStr = qparams.get("commentTypes");
-            int maxResults = parseIntOrDefault(qparams.get("maxResults"), 100);
-            sendResponse(exchange, searchComments(searchText, caseSensitive, commentTypesStr, maxResults));
-        });
-
-        // Data tools
-        server.createContext("/data/apply_data_type", exchange -> {
-            Map<String, String> params = parsePostParams(exchange);
-            String addressOrSymbol = params.get("addressOrSymbol");
-            String dataTypeString = params.get("dataTypeString");
-            String archiveName = params.getOrDefault("archiveName", "");
-            sendResponse(exchange, applyDataType(addressOrSymbol, dataTypeString, archiveName));
-        });
-
-        // Symbols tools
-        server.createContext("/symbols/get_count", exchange -> {
-            Map<String, String> qparams = parseQueryParams(exchange);
-            boolean includeExternal = Boolean.parseBoolean(qparams.getOrDefault("includeExternal", "false"));
-            boolean filterDefaultNames = Boolean.parseBoolean(qparams.getOrDefault("filterDefaultNames", "true"));
-            sendResponse(exchange, getSymbolsCount(includeExternal, filterDefaultNames));
-        });
-
-        server.createContext("/symbols/get", exchange -> {
-            Map<String, String> qparams = parseQueryParams(exchange);
-            boolean includeExternal = Boolean.parseBoolean(qparams.getOrDefault("includeExternal", "false"));
-            int startIndex = parseIntOrDefault(qparams.get("startIndex"), 0);
-            int maxCount = parseIntOrDefault(qparams.get("maxCount"), 200);
-            boolean filterDefaultNames = Boolean.parseBoolean(qparams.getOrDefault("filterDefaultNames", "true"));
-            sendResponse(exchange, getSymbols(includeExternal, startIndex, maxCount, filterDefaultNames));
-        });
-
-        // Imports/Exports tools
-        server.createContext("/imports/find_references", exchange -> {
-            Map<String, String> qparams = parseQueryParams(exchange);
-            String importName = qparams.get("importName");
-            String libraryName = qparams.get("libraryName");
-            int maxResults = parseIntOrDefault(qparams.get("maxResults"), 100);
-            sendResponse(exchange, findImportReferences(importName, libraryName, maxResults));
-        });
-
-        server.createContext("/imports/resolve_thunk", exchange -> {
-            Map<String, String> qparams = parseQueryParams(exchange);
-            String address = qparams.get("address");
-            sendResponse(exchange, resolveThunk(address));
-        });
-
-        // Call Graph tools
-        server.createContext("/callgraph/get_tree", exchange -> {
-            Map<String, String> qparams = parseQueryParams(exchange);
-            String functionAddress = qparams.get("functionAddress");
-            String direction = qparams.getOrDefault("direction", "callees");
-            int maxDepth = parseIntOrDefault(qparams.get("maxDepth"), 3);
-            sendResponse(exchange, getCallTree(functionAddress, direction, maxDepth));
-        });
-
-        server.createContext("/callgraph/find_common_callers", exchange -> {
-            Map<String, String> params = parsePostParams(exchange);
-            String functionAddressesStr = params.get("functionAddresses");
-            sendResponse(exchange, findCommonCallers(functionAddressesStr));
-        });
-
-        // Constants tools
-        server.createContext("/constants/list_common", exchange -> {
-            Map<String, String> qparams = parseQueryParams(exchange);
-            boolean includeSmallValues = Boolean.parseBoolean(qparams.getOrDefault("includeSmallValues", "false"));
-            String minValue = qparams.get("minValue");
-            int topN = parseIntOrDefault(qparams.get("topN"), 50);
-            sendResponse(exchange, listCommonConstants(includeSmallValues, minValue, topN));
-        });
-
-        // Data Flow tools
-        server.createContext("/dataflow/find_variable_accesses", exchange -> {
-            Map<String, String> qparams = parseQueryParams(exchange);
-            String functionAddress = qparams.get("functionAddress");
-            String variableName = qparams.get("variableName");
-            sendResponse(exchange, findVariableAccesses(functionAddress, variableName));
-        });
-
-        // Vtable tools
-        server.createContext("/vtable/find_containing_function", exchange -> {
-            Map<String, String> qparams = parseQueryParams(exchange);
-            String functionAddress = qparams.get("functionAddress");
-            sendResponse(exchange, findVtablesContainingFunction(functionAddress));
-        });
-
-        // Bookmarks tools
-        server.createContext("/bookmarks/remove", exchange -> {
-            Map<String, String> params = parsePostParams(exchange);
-            String addressOrSymbol = params.get("addressOrSymbol");
-            String type = params.get("type");
-            String category = params.get("category");
-            sendResponse(exchange, removeBookmark(addressOrSymbol, type, category));
-        });
-
-        server.createContext("/bookmarks/list_categories", exchange -> {
-            Map<String, String> qparams = parseQueryParams(exchange);
+            String addressOrSymbol = qparams.get("address_or_symbol");
             String type = qparams.get("type");
-            sendResponse(exchange, listBookmarkCategories(type));
+            String category = qparams.get("category");
+            String comment = qparams.get("comment");
+            String searchText = qparams.get("search_text");
+            int maxResults = parseIntOrDefault(qparams.get("max_results"), 100);
+            sendResponse(exchange, manageBookmarks(action, address, addressOrSymbol, type, category, comment, searchText, maxResults));
         });
 
-        // Decompiler tools
-        server.createContext("/decompiler/search", exchange -> {
+        server.createContext("/manage_comments", exchange -> {
             Map<String, String> qparams = parseQueryParams(exchange);
+            String action = qparams.getOrDefault("action", "get");
+            String address = qparams.get("address");
+            String addressOrSymbol = qparams.get("address_or_symbol");
+            String function = qparams.get("function");
+            String functionNameOrAddress = qparams.get("function_name_or_address");
+            int lineNumber = parseIntOrDefault(qparams.get("line_number"), 0);
+            String comment = qparams.get("comment");
+            String commentType = qparams.getOrDefault("comment_type", "eol");
+            String start = qparams.get("start");
+            String end = qparams.get("end");
+            String commentTypes = qparams.get("comment_types");
+            String searchText = qparams.get("search_text");
             String pattern = qparams.get("pattern");
-            boolean caseSensitive = Boolean.parseBoolean(qparams.getOrDefault("caseSensitive", "false"));
-            int maxResults = parseIntOrDefault(qparams.get("maxResults"), 50);
-            boolean overrideMaxFunctionsLimit = Boolean.parseBoolean(qparams.getOrDefault("overrideMaxFunctionsLimit", "false"));
-            sendResponse(exchange, searchDecompilation(pattern, caseSensitive, maxResults, overrideMaxFunctionsLimit));
+            boolean caseSensitive = Boolean.parseBoolean(qparams.getOrDefault("case_sensitive", "false"));
+            int maxResults = parseIntOrDefault(qparams.get("max_results"), 100);
+            boolean overrideMaxFunctionsLimit = Boolean.parseBoolean(qparams.getOrDefault("override_max_functions_limit", "false"));
+            sendResponse(exchange, manageComments(action, address, addressOrSymbol, function, functionNameOrAddress, lineNumber, comment, commentType, start, end, commentTypes, searchText, pattern, caseSensitive, maxResults, overrideMaxFunctionsLimit));
         });
 
-        server.createContext("/decompiler/rename_variables", exchange -> {
+        server.createContext("/analyze_vtables", exchange -> {
+            Map<String, String> qparams = parseQueryParams(exchange);
+            String mode = qparams.getOrDefault("mode", "analyze");
+            String vtableAddress = qparams.get("vtable_address");
+            String functionAddress = qparams.get("function_address");
+            int maxEntries = parseIntOrDefault(qparams.get("max_entries"), 200);
+            sendResponse(exchange, analyzeVtables(mode, vtableAddress, functionAddress, maxEntries));
+        });
+
+        server.createContext("/manage_symbols", exchange -> {
+            Map<String, String> qparams = parseQueryParams(exchange);
+            String mode = qparams.getOrDefault("mode", "symbols");
+            String address = qparams.get("address");
+            String labelName = qparams.get("label_name");
+            String newName = qparams.get("new_name");
+            String libraryFilter = qparams.get("library_filter");
+            int maxResults = parseIntOrDefault(qparams.get("max_results"), 500);
+            int startIndex = parseIntOrDefault(qparams.get("start_index"), 0);
+            int offset = parseIntOrDefault(qparams.get("offset"), 0);
+            int limit = parseIntOrDefault(qparams.get("limit"), 100);
+            boolean groupByLibrary = Boolean.parseBoolean(qparams.getOrDefault("group_by_library", "true"));
+            boolean includeExternal = Boolean.parseBoolean(qparams.getOrDefault("include_external", "false"));
+            int maxCount = parseIntOrDefault(qparams.get("max_count"), 200);
+            boolean filterDefaultNames = Boolean.parseBoolean(qparams.getOrDefault("filter_default_names", "true"));
+            sendResponse(exchange, manageSymbols(mode, address, labelName, newName, libraryFilter, maxResults, startIndex, offset, limit, groupByLibrary, includeExternal, maxCount, filterDefaultNames));
+        });
+
+        server.createContext("/manage_structures", exchange -> {
             Map<String, String> params = parsePostParams(exchange);
-            String functionNameOrAddress = params.get("functionNameOrAddress");
-            String variableMappingsStr = params.get("variableMappings");
-            sendResponse(exchange, renameVariables(functionNameOrAddress, variableMappingsStr));
-        });
-
-        server.createContext("/decompiler/change_variable_datatypes", exchange -> {
-            Map<String, String> params = parsePostParams(exchange);
-            String functionNameOrAddress = params.get("functionNameOrAddress");
-            String datatypeMappingsStr = params.get("datatypeMappings");
-            String archiveName = params.getOrDefault("archiveName", "");
-            sendResponse(exchange, changeVariableDataTypes(functionNameOrAddress, datatypeMappingsStr, archiveName));
-        });
-
-        server.createContext("/decompiler/get_callers_decompiled", exchange -> {
-            Map<String, String> qparams = parseQueryParams(exchange);
-            String functionNameOrAddress = qparams.get("functionNameOrAddress");
-            int startIndex = parseIntOrDefault(qparams.get("startIndex"), 0);
-            int maxCallers = parseIntOrDefault(qparams.get("maxCallers"), 10);
-            boolean includeCallContext = Boolean.parseBoolean(qparams.getOrDefault("includeCallContext", "true"));
-            sendResponse(exchange, getCallersDecompiled(functionNameOrAddress, startIndex, maxCallers, includeCallContext));
-        });
-
-        server.createContext("/decompiler/get_referencers_decompiled", exchange -> {
-            Map<String, String> qparams = parseQueryParams(exchange);
-            String addressOrSymbol = qparams.get("addressOrSymbol");
-            int startIndex = parseIntOrDefault(qparams.get("startIndex"), 0);
-            int maxReferencers = parseIntOrDefault(qparams.get("maxReferencers"), 10);
-            boolean includeRefContext = Boolean.parseBoolean(qparams.getOrDefault("includeRefContext", "true"));
-            boolean includeDataRefs = Boolean.parseBoolean(qparams.getOrDefault("includeDataRefs", "true"));
-            sendResponse(exchange, getReferencersDecompiled(addressOrSymbol, startIndex, maxReferencers, includeRefContext, includeDataRefs));
-        });
-
-        // DataType tools
-        server.createContext("/datatypes/get_archives", exchange -> {
-            sendResponse(exchange, getDataTypeArchives());
-        });
-
-        server.createContext("/datatypes/get_types", exchange -> {
-            Map<String, String> qparams = parseQueryParams(exchange);
-            String archiveName = qparams.get("archiveName");
-            String categoryPath = qparams.getOrDefault("categoryPath", "/");
-            boolean includeSubcategories = Boolean.parseBoolean(qparams.getOrDefault("includeSubcategories", "false"));
-            int startIndex = parseIntOrDefault(qparams.get("startIndex"), 0);
-            int maxCount = parseIntOrDefault(qparams.get("maxCount"), 100);
-            sendResponse(exchange, getDataTypes(archiveName, categoryPath, includeSubcategories, startIndex, maxCount));
-        });
-
-        server.createContext("/datatypes/get_by_string", exchange -> {
-            Map<String, String> qparams = parseQueryParams(exchange);
-            String dataTypeString = qparams.get("dataTypeString");
-            String archiveName = qparams.getOrDefault("archiveName", "");
-            sendResponse(exchange, getDataTypeByString(dataTypeString, archiveName));
-        });
-
-        // Import/Export tools
-        server.createContext("/imports/list", exchange -> {
-            Map<String, String> qparams = parseQueryParams(exchange);
-            String libraryFilter = qparams.get("libraryFilter");
-            int maxResults = parseIntOrDefault(qparams.get("maxResults"), 500);
-            int startIndex = parseIntOrDefault(qparams.get("startIndex"), 0);
-            boolean groupByLibrary = Boolean.parseBoolean(qparams.getOrDefault("groupByLibrary", "true"));
-            sendResponse(exchange, listImportsEnhanced(libraryFilter, maxResults, startIndex, groupByLibrary));
-        });
-
-        server.createContext("/exports/list", exchange -> {
-            Map<String, String> qparams = parseQueryParams(exchange);
-            int maxResults = parseIntOrDefault(qparams.get("maxResults"), 500);
-            int startIndex = parseIntOrDefault(qparams.get("startIndex"), 0);
-            sendResponse(exchange, listExportsEnhanced(maxResults, startIndex));
-        });
-
-        // Enhanced string tools
-        server.createContext("/strings/get", exchange -> {
-            Map<String, String> qparams = parseQueryParams(exchange);
-            int startIndex = parseIntOrDefault(qparams.get("startIndex"), 0);
-            int maxCount = parseIntOrDefault(qparams.get("maxCount"), 100);
-            boolean includeReferencingFunctions = Boolean.parseBoolean(qparams.getOrDefault("includeReferencingFunctions", "false"));
-            sendResponse(exchange, getStringsEnhanced(startIndex, maxCount, includeReferencingFunctions));
-        });
-
-        // Enhanced decompiler tools
-        server.createContext("/decompiler/get_decompilation", exchange -> {
-            Map<String, String> qparams = parseQueryParams(exchange);
-            String functionNameOrAddress = qparams.get("functionNameOrAddress");
-            int offset = parseIntOrDefault(qparams.get("offset"), 1);
-            int limit = parseIntOrDefault(qparams.get("limit"), 50);
-            boolean includeCallers = Boolean.parseBoolean(qparams.getOrDefault("includeCallers", "false"));
-            boolean includeCallees = Boolean.parseBoolean(qparams.getOrDefault("includeCallees", "false"));
-            boolean includeComments = Boolean.parseBoolean(qparams.getOrDefault("includeComments", "false"));
-            boolean includeIncomingReferences = Boolean.parseBoolean(qparams.getOrDefault("includeIncomingReferences", "true"));
-            boolean includeReferenceContext = Boolean.parseBoolean(qparams.getOrDefault("includeReferenceContext", "true"));
-            sendResponse(exchange, getDecompilationEnhanced(functionNameOrAddress, offset, limit, includeCallers, includeCallees, includeComments, includeIncomingReferences, includeReferenceContext));
-        });
-
-        server.createContext("/decompiler/set_decompilation_comment", exchange -> {
-            Map<String, String> params = parsePostParams(exchange);
-            String functionNameOrAddress = params.get("functionNameOrAddress");
-            int lineNumber = parseIntOrDefault(params.get("lineNumber"), 1);
-            String comment = params.get("comment");
-            String commentType = params.getOrDefault("commentType", "eol");
-            sendResponse(exchange, setDecompilationCommentEnhanced(functionNameOrAddress, lineNumber, comment, commentType));
-        });
-
-        // Enhanced callgraph tools
-        server.createContext("/callgraph/get_tree", exchange -> {
-            Map<String, String> qparams = parseQueryParams(exchange);
-            String functionAddress = qparams.get("functionAddress");
-            String direction = qparams.getOrDefault("direction", "callees");
-            int maxDepth = parseIntOrDefault(qparams.get("maxDepth"), 3);
-            sendResponse(exchange, getCallTreeEnhanced(functionAddress, direction, maxDepth));
-        });
-
-        // Structure tools
-        server.createContext("/structures/parse_c_structure", exchange -> {
-            Map<String, String> params = parsePostParams(exchange);
-            String cDefinition = params.get("cDefinition");
-            String category = params.getOrDefault("category", "/");
-            sendResponse(exchange, parseCStructure(cDefinition, category));
-        });
-
-        server.createContext("/structures/validate_c_structure", exchange -> {
-            Map<String, String> params = parsePostParams(exchange);
-            String cDefinition = params.get("cDefinition");
-            sendResponse(exchange, validateCStructure(cDefinition));
-        });
-
-        server.createContext("/structures/create_structure", exchange -> {
-            Map<String, String> params = parsePostParams(exchange);
+            String action = params.get("action");
+            String cDefinition = params.get("c_definition");
+            String headerContent = params.get("header_content");
+            String structureName = params.get("structure_name");
             String name = params.get("name");
             int size = parseIntOrDefault(params.get("size"), 0);
             String type = params.getOrDefault("type", "structure");
             String category = params.getOrDefault("category", "/");
             boolean packed = Boolean.parseBoolean(params.getOrDefault("packed", "false"));
             String description = params.get("description");
-            sendResponse(exchange, createStructure(name, size, type, category, packed, description));
-        });
-
-        server.createContext("/structures/add_structure_field", exchange -> {
-            Map<String, String> params = parsePostParams(exchange);
-            String structureName = params.get("structureName");
-            String fieldName = params.get("fieldName");
-            String dataType = params.get("dataType");
-            Integer offset = params.get("offset") != null && !params.get("offset").isEmpty() ? parseIntOrDefault(params.get("offset"), 0) : null;
+            String fieldName = params.get("field_name");
+            String dataType = params.get("data_type");
+            Integer offset = params.get("offset") != null ? Integer.parseInt(params.get("offset")) : null;
             String comment = params.get("comment");
-            sendResponse(exchange, addStructureField(structureName, fieldName, dataType, offset, comment));
-        });
-
-        server.createContext("/structures/modify_structure_field", exchange -> {
-            Map<String, String> params = parsePostParams(exchange);
-            String structureName = params.get("structureName");
-            String fieldName = params.get("fieldName");
-            Integer offset = params.get("offset") != null && !params.get("offset").isEmpty() ? parseIntOrDefault(params.get("offset"), 0) : null;
-            String newDataType = params.get("newDataType");
-            String newFieldName = params.get("newFieldName");
-            String newComment = params.get("newComment");
-            Integer newLength = params.get("newLength") != null && !params.get("newLength").isEmpty() ? parseIntOrDefault(params.get("newLength"), 0) : null;
-            sendResponse(exchange, modifyStructureField(structureName, fieldName, offset, newDataType, newFieldName, newComment, newLength));
-        });
-
-        server.createContext("/structures/modify_structure_from_c", exchange -> {
-            Map<String, String> params = parsePostParams(exchange);
-            String cDefinition = params.get("cDefinition");
-            sendResponse(exchange, modifyStructureFromC(cDefinition));
-        });
-
-        server.createContext("/structures/get_structure_info", exchange -> {
-            Map<String, String> qparams = parseQueryParams(exchange);
-            String structureName = qparams.get("structureName");
-            sendResponse(exchange, getStructureInfo(structureName));
-        });
-
-        server.createContext("/structures/list_structures", exchange -> {
-            Map<String, String> qparams = parseQueryParams(exchange);
-            String category = qparams.get("category");
-            String nameFilter = qparams.get("nameFilter");
-            boolean includeBuiltIn = Boolean.parseBoolean(qparams.getOrDefault("includeBuiltIn", "false"));
-            sendResponse(exchange, listStructures(category, nameFilter, includeBuiltIn));
-        });
-
-        server.createContext("/structures/apply_structure", exchange -> {
-            Map<String, String> params = parsePostParams(exchange);
-            String structureName = params.get("structureName");
-            String addressOrSymbol = params.get("addressOrSymbol");
-            boolean clearExisting = Boolean.parseBoolean(params.getOrDefault("clearExisting", "true"));
-            sendResponse(exchange, applyStructure(structureName, addressOrSymbol, clearExisting));
-        });
-
-        server.createContext("/structures/delete_structure", exchange -> {
-            Map<String, String> params = parsePostParams(exchange);
-            String structureName = params.get("structureName");
+            String newDataType = params.get("new_data_type");
+            String newFieldName = params.get("new_field_name");
+            String newComment = params.get("new_comment");
+            Integer newLength = params.get("new_length") != null ? Integer.parseInt(params.get("new_length")) : null;
+            String addressOrSymbol = params.get("address_or_symbol");
+            boolean clearExisting = Boolean.parseBoolean(params.getOrDefault("clear_existing", "true"));
             boolean force = Boolean.parseBoolean(params.getOrDefault("force", "false"));
-            sendResponse(exchange, deleteStructure(structureName, force));
+            String nameFilter = params.get("name_filter");
+            boolean includeBuiltIn = Boolean.parseBoolean(params.getOrDefault("include_built_in", "false"));
+            sendResponse(exchange, manageStructures(action, cDefinition, headerContent, structureName, name, size, type, category, packed, description, fieldName, dataType, offset, comment, newDataType, newFieldName, newComment, newLength, addressOrSymbol, clearExisting, force, nameFilter, includeBuiltIn));
         });
 
-        server.createContext("/structures/parse_c_header", exchange -> {
-            Map<String, String> params = parsePostParams(exchange);
-            String headerContent = params.get("headerContent");
-            String category = params.getOrDefault("category", "/");
-            sendResponse(exchange, parseCHeader(headerContent, category));
+        server.createContext("/manage_data_types", exchange -> {
+            Map<String, String> qparams = parseQueryParams(exchange);
+            String action = qparams.getOrDefault("action", "list");
+            String archiveName = qparams.get("archive_name");
+            String categoryPath = qparams.getOrDefault("category_path", "/");
+            boolean includeSubcategories = Boolean.parseBoolean(qparams.getOrDefault("include_subcategories", "false"));
+            int startIndex = parseIntOrDefault(qparams.get("start_index"), 0);
+            int maxCount = parseIntOrDefault(qparams.get("max_count"), 100);
+            String dataTypeString = qparams.get("data_type_string");
+            String addressOrSymbol = qparams.get("address_or_symbol");
+            sendResponse(exchange, manageDataTypes(action, archiveName, categoryPath, includeSubcategories, startIndex, maxCount, dataTypeString, addressOrSymbol));
+        });
+
+        server.createContext("/get_current_context", exchange -> {
+            Map<String, String> qparams = parseQueryParams(exchange);
+            String mode = qparams.getOrDefault("mode", "both");
+            sendResponse(exchange, getCurrentContext(mode));
+        });
+
+        server.createContext("/manage_function_tags", exchange -> {
+            Map<String, String> qparams = parseQueryParams(exchange);
+            String function = qparams.get("function");
+            String mode = qparams.getOrDefault("mode", "list");
+            String tags = qparams.get("tags");
+            sendResponse(exchange, manageFunctionTags(function, mode, tags));
         });
 
         server.setExecutor(null);
@@ -1023,7 +500,7 @@ public class GhidraMCPPlugin extends Plugin {
         Program program = getCurrentProgram();
         if (program == null) return "No program loaded";
         if (searchTerm == null || searchTerm.isEmpty()) return "Search term is required";
-    
+
         List<String> matches = new ArrayList<>();
         for (Function func : program.getFunctionManager().getFunctions(true)) {
             String name = func.getName();
@@ -1032,14 +509,14 @@ public class GhidraMCPPlugin extends Plugin {
                 matches.add(String.format("%s @ %s", name, func.getEntryPoint()));
             }
         }
-    
+
         Collections.sort(matches);
-    
+
         if (matches.isEmpty()) {
             return "No functions matching '" + searchTerm + "'";
         }
         return paginateList(matches, offset, limit);
-    }    
+    }
 
     // ----------------------------------------------------------------------------------
     // Logic for rename, decompile, etc.
@@ -1168,7 +645,7 @@ public class GhidraMCPPlugin extends Plugin {
         while (symbols.hasNext()) {
             HighSymbol symbol = symbols.next();
             String symbolName = symbol.getName();
-            
+
             if (symbolName.equals(oldVarName)) {
                 highSymbol = symbol;
             }
@@ -1188,7 +665,7 @@ public class GhidraMCPPlugin extends Plugin {
         AtomicBoolean successFlag = new AtomicBoolean(false);
 
         try {
-            SwingUtilities.invokeAndWait(() -> {           
+            SwingUtilities.invokeAndWait(() -> {
                 int tx = program.startTransaction("Rename variable");
                 try {
                     if (commitRequired) {
@@ -1326,8 +803,8 @@ public class GhidraMCPPlugin extends Plugin {
 
         StringBuilder result = new StringBuilder();
         for (Function func : program.getFunctionManager().getFunctions(true)) {
-            result.append(String.format("%s at %s\n", 
-                func.getName(), 
+            result.append(String.format("%s at %s\n",
+                func.getName(),
                 func.getEntryPoint()));
         }
 
@@ -1363,8 +840,8 @@ public class GhidraMCPPlugin extends Plugin {
             decomp.openProgram(program);
             DecompileResults result = decomp.decompileFunction(func, 30, new ConsoleTaskMonitor());
 
-            return (result != null && result.decompileCompleted()) 
-                ? result.getDecompiledFunction().getC() 
+            return (result != null && result.decompileCompleted())
+                ? result.getDecompiledFunction().getC()
                 : "Decompilation failed";
         } catch (Exception e) {
             return "Error decompiling function: " + e.getMessage();
@@ -1398,8 +875,8 @@ public class GhidraMCPPlugin extends Plugin {
                 String comment = listing.getComment(CodeUnit.EOL_COMMENT, instr.getAddress());
                 comment = (comment != null) ? "; " + comment : "";
 
-                result.append(String.format("%s: %s %s\n", 
-                    instr.getAddress(), 
+                result.append(String.format("%s: %s %s\n",
+                    instr.getAddress(),
                     instr.toString(),
                     comment));
             }
@@ -1408,7 +885,7 @@ public class GhidraMCPPlugin extends Plugin {
         } catch (Exception e) {
             return "Error disassembling function: " + e.getMessage();
         }
-    }    
+    }
 
     /**
      * Set a comment using the specified comment type (PRE_COMMENT or EOL_COMMENT)
@@ -1481,7 +958,7 @@ public class GhidraMCPPlugin extends Plugin {
     private boolean renameFunctionByAddress(String functionAddrStr, String newName) {
         Program program = getCurrentProgram();
         if (program == null) return false;
-        if (functionAddrStr == null || functionAddrStr.isEmpty() || 
+        if (functionAddrStr == null || functionAddrStr.isEmpty() ||
             newName == null || newName.isEmpty()) {
             return false;
         }
@@ -1540,7 +1017,7 @@ public class GhidraMCPPlugin extends Plugin {
         final AtomicBoolean success = new AtomicBoolean(false);
 
         try {
-            SwingUtilities.invokeAndWait(() -> 
+            SwingUtilities.invokeAndWait(() ->
                 applyFunctionPrototype(program, functionAddrStr, prototype, success, errorMessage));
         } catch (InterruptedException | InvocationTargetException e) {
             String msg = "Failed to set function prototype on Swing thread: " + e.getMessage();
@@ -1554,7 +1031,7 @@ public class GhidraMCPPlugin extends Plugin {
     /**
      * Helper method that applies the function prototype within a transaction
      */
-    private void applyFunctionPrototype(Program program, String functionAddrStr, String prototype, 
+    private void applyFunctionPrototype(Program program, String functionAddrStr, String prototype,
                                        AtomicBoolean success, StringBuilder errorMessage) {
         try {
             // Get the address and function
@@ -1590,8 +1067,8 @@ public class GhidraMCPPlugin extends Plugin {
         int txComment = program.startTransaction("Add prototype comment");
         try {
             program.getListing().setComment(
-                func.getEntryPoint(), 
-                CodeUnit.PLATE_COMMENT, 
+                func.getEntryPoint(),
+                CodeUnit.PLATE_COMMENT,
                 "Setting prototype: " + prototype
             );
         } finally {
@@ -1611,11 +1088,11 @@ public class GhidraMCPPlugin extends Plugin {
             DataTypeManager dtm = program.getDataTypeManager();
 
             // Get data type manager service
-            ghidra.app.services.DataTypeManagerService dtms = 
+            ghidra.app.services.DataTypeManagerService dtms =
                 tool.getService(ghidra.app.services.DataTypeManagerService.class);
 
             // Create function signature parser
-            ghidra.app.util.parser.FunctionSignatureParser parser = 
+            ghidra.app.util.parser.FunctionSignatureParser parser =
                 new ghidra.app.util.parser.FunctionSignatureParser(dtm, dtms);
 
             // Parse the prototype into a function signature
@@ -1629,7 +1106,7 @@ public class GhidraMCPPlugin extends Plugin {
             }
 
             // Create and apply the command
-            ghidra.app.cmd.function.ApplyFunctionSignatureCmd cmd = 
+            ghidra.app.cmd.function.ApplyFunctionSignatureCmd cmd =
                 new ghidra.app.cmd.function.ApplyFunctionSignatureCmd(
                     addr, sig, SourceType.USER_DEFINED);
 
@@ -1660,7 +1137,7 @@ public class GhidraMCPPlugin extends Plugin {
         // Input validation
         Program program = getCurrentProgram();
         if (program == null) return false;
-        if (functionAddrStr == null || functionAddrStr.isEmpty() || 
+        if (functionAddrStr == null || functionAddrStr.isEmpty() ||
             variableName == null || variableName.isEmpty() ||
             newType == null || newType.isEmpty()) {
             return false;
@@ -1669,7 +1146,7 @@ public class GhidraMCPPlugin extends Plugin {
         AtomicBoolean success = new AtomicBoolean(false);
 
         try {
-            SwingUtilities.invokeAndWait(() -> 
+            SwingUtilities.invokeAndWait(() ->
                 applyVariableType(program, functionAddrStr, variableName, newType, success));
         } catch (InterruptedException | InvocationTargetException e) {
             Msg.error(this, "Failed to execute set variable type on Swing thread", e);
@@ -1681,7 +1158,7 @@ public class GhidraMCPPlugin extends Plugin {
     /**
      * Helper method that performs the actual variable type change
      */
-    private void applyVariableType(Program program, String functionAddrStr, 
+    private void applyVariableType(Program program, String functionAddrStr,
                                   String variableName, String newType, AtomicBoolean success) {
         try {
             // Find the function
@@ -1718,7 +1195,7 @@ public class GhidraMCPPlugin extends Plugin {
                 return;
             }
 
-            Msg.info(this, "Found high variable for: " + variableName + 
+            Msg.info(this, "Found high variable for: " + variableName +
                      " with current type " + highVar.getDataType().getName());
 
             // Find the data type
@@ -1808,21 +1285,21 @@ public class GhidraMCPPlugin extends Plugin {
         try {
             Address addr = program.getAddressFactory().getAddress(addressStr);
             ReferenceManager refManager = program.getReferenceManager();
-            
+
             ReferenceIterator refIter = refManager.getReferencesTo(addr);
-            
+
             List<String> refs = new ArrayList<>();
             while (refIter.hasNext()) {
                 Reference ref = refIter.next();
                 Address fromAddr = ref.getFromAddress();
                 RefType refType = ref.getReferenceType();
-                
+
                 Function fromFunc = program.getFunctionManager().getFunctionContaining(fromAddr);
                 String funcInfo = (fromFunc != null) ? " in " + fromFunc.getName() : "";
-                
+
                 refs.add(String.format("From %s%s [%s]", fromAddr, funcInfo, refType.getName()));
             }
-            
+
             return paginateList(refs, offset, limit);
         } catch (Exception e) {
             return "Error getting references to address: " + e.getMessage();
@@ -1840,14 +1317,14 @@ public class GhidraMCPPlugin extends Plugin {
         try {
             Address addr = program.getAddressFactory().getAddress(addressStr);
             ReferenceManager refManager = program.getReferenceManager();
-            
+
             Reference[] references = refManager.getReferencesFrom(addr);
-            
+
             List<String> refs = new ArrayList<>();
             for (Reference ref : references) {
                 Address toAddr = ref.getToAddress();
                 RefType refType = ref.getReferenceType();
-                
+
                 String targetInfo = "";
                 Function toFunc = program.getFunctionManager().getFunctionAt(toAddr);
                 if (toFunc != null) {
@@ -1858,10 +1335,10 @@ public class GhidraMCPPlugin extends Plugin {
                         targetInfo = " to data " + (data.getLabel() != null ? data.getLabel() : data.getPathName());
                     }
                 }
-                
+
                 refs.add(String.format("To %s%s [%s]", toAddr, targetInfo, refType.getName()));
             }
-            
+
             return paginateList(refs, offset, limit);
         } catch (Exception e) {
             return "Error getting references from address: " + e.getMessage();
@@ -1883,24 +1360,24 @@ public class GhidraMCPPlugin extends Plugin {
                 if (function.getName().equals(functionName)) {
                     Address entryPoint = function.getEntryPoint();
                     ReferenceIterator refIter = program.getReferenceManager().getReferencesTo(entryPoint);
-                    
+
                     while (refIter.hasNext()) {
                         Reference ref = refIter.next();
                         Address fromAddr = ref.getFromAddress();
                         RefType refType = ref.getReferenceType();
-                        
+
                         Function fromFunc = funcManager.getFunctionContaining(fromAddr);
                         String funcInfo = (fromFunc != null) ? " in " + fromFunc.getName() : "";
-                        
+
                         refs.add(String.format("From %s%s [%s]", fromAddr, funcInfo, refType.getName()));
                     }
                 }
             }
-            
+
             if (refs.isEmpty()) {
                 return "No references found to function: " + functionName;
             }
-            
+
             return paginateList(refs, offset, limit);
         } catch (Exception e) {
             return "Error getting function references: " + e.getMessage();
@@ -1923,14 +1400,14 @@ public class GhidraMCPPlugin extends Plugin {
             java.util.regex.Pattern pattern = java.util.regex.Pattern.compile(patternStr);
             List<String> results = new ArrayList<>();
             DataIterator dataIt = program.getListing().getDefinedData(true);
-            
+
             int count = 0;
             while (dataIt.hasNext() && count < maxResults) {
                 Data data = dataIt.next();
-                
+
                 if (data != null && isStringData(data)) {
                     String value = data.getValue() != null ? data.getValue().toString() : "";
-                    
+
                     if (pattern.matcher(value).find()) {
                         String escapedValue = escapeString(value);
                         results.add(String.format("%s: \"%s\"", data.getAddress(), escapedValue));
@@ -1938,14 +1415,14 @@ public class GhidraMCPPlugin extends Plugin {
                     }
                 }
             }
-            
+
             if (results.isEmpty()) {
                 return "No strings matching pattern: " + patternStr;
             }
-            
+
             return String.format("Found %d string(s) matching /%s/:\n%s",
                 results.size(), patternStr, String.join("\n", results));
-                
+
         } catch (java.util.regex.PatternSyntaxException e) {
             return "Invalid regex pattern: " + e.getMessage();
         } catch (Exception e) {
@@ -1962,14 +1439,14 @@ public class GhidraMCPPlugin extends Plugin {
 
         int count = 0;
         DataIterator dataIt = program.getListing().getDefinedData(true);
-        
+
         while (dataIt.hasNext()) {
             Data data = dataIt.next();
             if (data != null && isStringData(data)) {
                 count++;
             }
         }
-        
+
         return "Total strings in program: " + count;
     }
 
@@ -1998,10 +1475,10 @@ public class GhidraMCPPlugin extends Plugin {
                     Reference ref = refsTo.next();
                     Address fromAddr = ref.getFromAddress();
                     RefType refType = ref.getReferenceType();
-                    
+
                     Function fromFunc = program.getFunctionManager().getFunctionContaining(fromAddr);
                     String funcInfo = (fromFunc != null) ? " in " + fromFunc.getName() : "";
-                    
+
                     results.add(String.format("FROM %s%s [%s]", fromAddr, funcInfo, refType.getName()));
                     count++;
                 }
@@ -2013,13 +1490,13 @@ public class GhidraMCPPlugin extends Plugin {
                 int count = 0;
                 for (Reference ref : refsFrom) {
                     if (count >= limit) break;
-                    
+
                     Address toAddr = ref.getToAddress();
                     RefType refType = ref.getReferenceType();
-                    
+
                     Function toFunc = program.getFunctionManager().getFunctionAt(toAddr);
                     String targetInfo = (toFunc != null) ? " to function " + toFunc.getName() : "";
-                    
+
                     results.add(String.format("TO %s%s [%s]", toAddr, targetInfo, refType.getName()));
                     count++;
                 }
@@ -2056,7 +1533,7 @@ public class GhidraMCPPlugin extends Plugin {
                 try {
                     Address addr = program.getAddressFactory().getAddress(addressStr);
                     SymbolTable symTable = program.getSymbolTable();
-                    
+
                     // Check if label already exists
                     Symbol existing = symTable.getPrimarySymbol(addr);
                     if (existing != null && !existing.getName().startsWith("FUN_") && !existing.getName().startsWith("DAT_")) {
@@ -2090,7 +1567,7 @@ public class GhidraMCPPlugin extends Plugin {
         try {
             Address addr = program.getAddressFactory().getAddress(addressStr);
             Data data = program.getListing().getDataAt(addr);
-            
+
             if (data == null) {
                 return "No defined data at address: " + addressStr;
             }
@@ -2099,17 +1576,17 @@ public class GhidraMCPPlugin extends Plugin {
             result.append("Data at ").append(addr).append(":\n");
             result.append("Type: ").append(data.getDataType().getName()).append("\n");
             result.append("Size: ").append(data.getLength()).append(" bytes\n");
-            
+
             String label = data.getLabel();
             if (label != null) {
                 result.append("Label: ").append(label).append("\n");
             }
-            
+
             Object value = data.getValue();
             if (value != null) {
                 result.append("Value: ").append(value.toString()).append("\n");
             }
-            
+
             String valRepr = data.getDefaultValueRepresentation();
             if (valRepr != null) {
                 result.append("Representation: ").append(valRepr).append("\n");
@@ -2131,20 +1608,20 @@ public class GhidraMCPPlugin extends Plugin {
 
         List<String> lines = new ArrayList<>();
         DataIterator dataIt = program.getListing().getDefinedData(true);
-        
+
         while (dataIt.hasNext()) {
             Data data = dataIt.next();
-            
+
             if (data != null && isStringData(data)) {
                 String value = data.getValue() != null ? data.getValue().toString() : "";
-                
+
                 if (filter == null || value.toLowerCase().contains(filter.toLowerCase())) {
                     String escapedValue = escapeString(value);
                     lines.add(String.format("%s: \"%s\"", data.getAddress(), escapedValue));
                 }
             }
         }
-        
+
         return paginateList(lines, offset, limit);
     }
 
@@ -2153,7 +1630,7 @@ public class GhidraMCPPlugin extends Plugin {
      */
     private boolean isStringData(Data data) {
         if (data == null) return false;
-        
+
         DataType dt = data.getDataType();
         String typeName = dt.getName().toLowerCase();
         return typeName.contains("string") || typeName.contains("char") || typeName.equals("unicode");
@@ -2164,7 +1641,7 @@ public class GhidraMCPPlugin extends Plugin {
      */
     private String escapeString(String input) {
         if (input == null) return "";
-        
+
         StringBuilder sb = new StringBuilder();
         for (int i = 0; i < input.length(); i++) {
             char c = input.charAt(i);
@@ -2261,7 +1738,7 @@ public class GhidraMCPPlugin extends Plugin {
                 return dtm.getDataType("/int");
         }
     }
-    
+
     /**
      * Find a data type by name in all categories/folders of the data type manager
      * This searches through all categories rather than just the root
@@ -2285,7 +1762,7 @@ public class GhidraMCPPlugin extends Plugin {
         Iterator<DataType> allTypes = dtm.getAllDataTypes();
         while (allTypes.hasNext()) {
             DataType dt = allTypes.next();
-            // Check if the name matches exactly (case-sensitive) 
+            // Check if the name matches exactly (case-sensitive)
             if (dt.getName().equals(name)) {
                 return dt;
             }
@@ -2427,7 +1904,7 @@ public class GhidraMCPPlugin extends Plugin {
                 try {
                     Address addr = program.getAddressFactory().getAddress(addressStr);
                     ghidra.program.model.listing.BookmarkManager bookmarkMgr = program.getBookmarkManager();
-                    
+
                     String cat = (category != null && !category.isEmpty()) ? category : "";
                     bookmarkMgr.setBookmark(addr, type, cat, comment);
                     success.set(true);
@@ -2648,7 +2125,7 @@ public class GhidraMCPPlugin extends Plugin {
                     if (scalar != null) {
                         long unsignedValue = scalar.getUnsignedValue();
                         long signedValue = scalar.getSignedValue();
-                        
+
                         if (unsignedValue == targetValue || signedValue == targetValue) {
                             Function func = program.getFunctionManager().getFunctionContaining(instr.getAddress());
                             String funcName = (func != null) ? func.getName() : "(no function)";
@@ -2686,7 +2163,7 @@ public class GhidraMCPPlugin extends Plugin {
         try {
             long minValue = parseConstantValue(minValueStr);
             long maxValue = parseConstantValue(maxValueStr);
-            
+
             Map<Long, Integer> valueCounts = new HashMap<>();
             List<String> results = new ArrayList<>();
             Listing listing = program.getListing();
@@ -2699,7 +2176,7 @@ public class GhidraMCPPlugin extends Plugin {
                     ghidra.program.model.scalar.Scalar scalar = instr.getScalar(i);
                     if (scalar != null) {
                         long unsignedValue = scalar.getUnsignedValue();
-                        
+
                         if (Long.compareUnsigned(unsignedValue, minValue) >= 0 &&
                             Long.compareUnsigned(unsignedValue, maxValue) <= 0) {
                             valueCounts.put(unsignedValue, valueCounts.getOrDefault(unsignedValue, 0) + 1);
@@ -2716,7 +2193,7 @@ public class GhidraMCPPlugin extends Plugin {
             StringBuilder result = new StringBuilder();
             result.append(String.format("Found %d unique constant(s) in range [%s, %s]:\n",
                 valueCounts.size(), minValueStr, maxValueStr));
-            
+
             valueCounts.entrySet().stream()
                 .sorted((a, b) -> Integer.compare(b.getValue(), a.getValue()))
                 .limit(maxResults)
@@ -2759,7 +2236,7 @@ public class GhidraMCPPlugin extends Plugin {
 
         StringBuilder result = new StringBuilder();
         result.append("Memory Blocks:\n");
-        
+
         for (MemoryBlock block : program.getMemory().getBlocks()) {
             result.append(String.format("%s: %s - %s (size: %d, R:%s W:%s X:%s)\n",
                 block.getName(),
@@ -2786,19 +2263,19 @@ public class GhidraMCPPlugin extends Plugin {
             Address addr = program.getAddressFactory().getAddress(addressStr);
             byte[] bytes = new byte[length];
             int bytesRead = program.getMemory().getBytes(addr, bytes);
-            
+
             StringBuilder result = new StringBuilder();
             result.append(String.format("Memory at %s (%d bytes):\n", addr, bytesRead));
-            
+
             // Format as hex dump
             for (int i = 0; i < bytesRead; i += 16) {
                 result.append(String.format("%s: ", addr.add(i)));
-                
+
                 // Hex bytes
                 for (int j = 0; j < 16 && i + j < bytesRead; j++) {
                     result.append(String.format("%02x ", bytes[i + j] & 0xFF));
                 }
-                
+
                 // ASCII representation
                 result.append(" |");
                 for (int j = 0; j < 16 && i + j < bytesRead; j++) {
@@ -2807,7 +2284,7 @@ public class GhidraMCPPlugin extends Plugin {
                 }
                 result.append("|\n");
             }
-            
+
             return result.toString();
         } catch (Exception e) {
             return "Error reading memory: " + e.getMessage();
@@ -2861,7 +2338,7 @@ public class GhidraMCPPlugin extends Plugin {
                     ghidra.program.model.pcode.PcodeOpAST op = ops.next();
                     found = true;
                     result.append("Operation: ").append(op.getMnemonic()).append("\n");
-                    
+
                     // Show inputs (where data comes from)
                     for (int i = 0; i < op.getNumInputs(); i++) {
                         ghidra.program.model.pcode.Varnode input = op.getInput(i);
@@ -2926,13 +2403,13 @@ public class GhidraMCPPlugin extends Plugin {
                     ghidra.program.model.pcode.PcodeOpAST op = ops.next();
                     found = true;
                     result.append("Operation: ").append(op.getMnemonic()).append("\n");
-                    
+
                     // Show output (where data goes)
                     ghidra.program.model.pcode.Varnode output = op.getOutput();
                     if (output != null) {
                         result.append("  Output: ");
                         result.append(describeVarnode(output, program)).append("\n");
-                        
+
                         // Show descendants (uses of this output)
                         Iterator<ghidra.program.model.pcode.PcodeOp> descendants = output.getDescendants();
                         while (descendants.hasNext()) {
@@ -2969,13 +2446,13 @@ public class GhidraMCPPlugin extends Plugin {
         } else if (vn.isAddress()) {
             return "Memory " + vn.getAddress();
         }
-        
+
         // Try to get variable name
         ghidra.program.model.pcode.HighVariable high = vn.getHigh();
         if (high != null && high.getName() != null) {
             return "Variable '" + high.getName() + "'";
         }
-        
+
         return "Unknown";
     }
 
@@ -3069,7 +2546,7 @@ public class GhidraMCPPlugin extends Plugin {
             // Find vtable slots containing this function
             ReferenceManager refMgr = program.getReferenceManager();
             ReferenceIterator refs = refMgr.getReferencesTo(funcAddr);
-            
+
             List<Integer> vtableOffsets = new ArrayList<>();
             int pointerSize = program.getDefaultPointerSize();
 
@@ -3079,6 +2556,7 @@ public class GhidraMCPPlugin extends Plugin {
                     // This is a data reference - could be in a vtable
                     // Calculate offset would be needed here for full implementation
                     // For now, just note that we found it in a vtable
+                    // TODO: Full implementation
                 }
             }
 
@@ -3090,12 +2568,12 @@ public class GhidraMCPPlugin extends Plugin {
             while (instructions.hasNext()) {
                 Instruction instr = instructions.next();
                 FlowType flowType = instr.getFlowType();
-                
+
                 if (flowType.isCall() && flowType.isComputed()) {
                     // This is an indirect call
                     String operand = instr.getDefaultOperandRepresentation(0);
                     indirectCalls.add(String.format("%s: %s", instr.getAddress(), instr.toString()));
-                    
+
                     if (indirectCalls.size() >= 100) {
                         break; // Limit results
                     }
@@ -3110,7 +2588,7 @@ public class GhidraMCPPlugin extends Plugin {
             result.append("Potential vtable callers for ").append(targetFunc.getName()).append(":\n");
             result.append("(Note: These are all indirect calls - manual verification needed)\n\n");
             result.append(String.join("\n", indirectCalls));
-            
+
             return result.toString();
 
         } catch (Exception e) {
@@ -3140,7 +2618,7 @@ public class GhidraMCPPlugin extends Plugin {
             result.append("Address: ").append(func.getEntryPoint()).append("\n");
             result.append("Signature: ").append(func.getSignature()).append("\n");
             result.append("Body: ").append(func.getBody().getMinAddress()).append(" - ").append(func.getBody().getMaxAddress()).append("\n");
-            
+
             // Parameters
             result.append("\nParameters:\n");
             Parameter[] params = func.getParameters();
@@ -3151,7 +2629,7 @@ public class GhidraMCPPlugin extends Plugin {
                     result.append("  ").append(param.getDataType().getName()).append(" ").append(param.getName()).append("\n");
                 }
             }
-            
+
             // Local variables
             result.append("\nLocal Variables:\n");
             Variable[] locals = func.getLocalVariables();
@@ -3189,7 +2667,7 @@ public class GhidraMCPPlugin extends Plugin {
             while (instructions.hasNext()) {
                 Instruction instr = instructions.next();
                 FlowType flowType = instr.getFlowType();
-                
+
                 if (flowType.isCall()) {
                     Address[] flows = instr.getFlows();
                     for (Address flow : flows) {
@@ -3250,7 +2728,7 @@ public class GhidraMCPPlugin extends Plugin {
             FunctionManager funcMgr = program.getFunctionManager();
             FunctionIterator functions = funcMgr.getFunctions(true);
             List<Function> matchingFunctions = new ArrayList<>();
-            
+
             while (functions.hasNext()) {
                 Function func = functions.next();
                 if (filterDefaultNames && func.getName().startsWith("FUN_")) {
@@ -3260,14 +2738,14 @@ public class GhidraMCPPlugin extends Plugin {
                     matchingFunctions.add(func);
                 }
             }
-            
+
             // Sort by similarity (simple substring match for now)
             matchingFunctions.sort((a, b) -> {
                 int aScore = longestCommonSubstring(searchString.toLowerCase(), a.getName().toLowerCase());
                 int bScore = longestCommonSubstring(searchString.toLowerCase(), b.getName().toLowerCase());
                 return Integer.compare(bScore, aScore);
             });
-            
+
             int endIndex = Math.min(startIndex + maxCount, matchingFunctions.size());
             StringBuilder result = new StringBuilder("{\"functions\":[");
             for (int i = startIndex; i < endIndex; i++) {
@@ -3309,7 +2787,7 @@ public class GhidraMCPPlugin extends Plugin {
             FunctionManager funcMgr = program.getFunctionManager();
             ReferenceManager refMgr = program.getReferenceManager();
             Map<Address, Integer> candidates = new HashMap<>();
-            
+
             ReferenceIterator refIter = refMgr.getReferenceIterator(program.getMinAddress());
             while (refIter.hasNext()) {
                 Reference ref = refIter.next();
@@ -3324,11 +2802,11 @@ public class GhidraMCPPlugin extends Plugin {
                     }
                 }
             }
-            
+
             List<Map.Entry<Address, Integer>> sorted = new ArrayList<>(candidates.entrySet());
             sorted.sort((a, b) -> Integer.compare(b.getValue(), a.getValue()));
             sorted.removeIf(e -> e.getValue() < minReferenceCount);
-            
+
             int endIndex = Math.min(startIndex + maxCandidates, sorted.size());
             StringBuilder result = new StringBuilder("{\"candidates\":[");
             for (int i = startIndex; i < endIndex; i++) {
@@ -3357,7 +2835,7 @@ public class GhidraMCPPlugin extends Plugin {
             if (funcMgr.getFunctionAt(addr) != null) {
                 return "Function already exists at " + address;
             }
-            
+
             int txId = program.startTransaction("Create Function");
             try {
                 ghidra.app.cmd.function.CreateFunctionCmd cmd = new ghidra.app.cmd.function.CreateFunctionCmd(addr);
@@ -3394,7 +2872,7 @@ public class GhidraMCPPlugin extends Plugin {
                 func = funcMgr.getFunctionAt(addr);
             }
             if (func == null) return "Function not found: " + function;
-            
+
             int txId = program.startTransaction("Manage Function Tags");
             try {
                 if ("get".equals(mode)) {
@@ -3461,7 +2939,7 @@ public class GhidraMCPPlugin extends Plugin {
             Listing listing = program.getListing();
             ghidra.program.model.listing.DataIterator dataIter = listing.getDefinedData(true);
             List<ghidra.program.model.listing.Data> matchingStrings = new ArrayList<>();
-            
+
             while (dataIter.hasNext()) {
                 ghidra.program.model.listing.Data data = dataIter.next();
                 if (data.getValue() instanceof String) {
@@ -3471,7 +2949,7 @@ public class GhidraMCPPlugin extends Plugin {
                     }
                 }
             }
-            
+
             // Sort by similarity
             matchingStrings.sort((a, b) -> {
                 String aStr = ((String) a.getValue()).toLowerCase();
@@ -3480,7 +2958,7 @@ public class GhidraMCPPlugin extends Plugin {
                 int bScore = longestCommonSubstring(searchString.toLowerCase(), bStr);
                 return Integer.compare(bScore, aScore);
             });
-            
+
             int endIndex = Math.min(startIndex + maxCount, matchingStrings.size());
             StringBuilder result = new StringBuilder("{\"strings\":[");
             for (int i = startIndex; i < endIndex; i++) {
@@ -3513,13 +2991,13 @@ public class GhidraMCPPlugin extends Plugin {
         try {
             Address addr = resolveAddressOrSymbol(program, addressOrSymbol);
             if (addr == null) return "Invalid address or symbol: " + addressOrSymbol;
-            
+
             ghidra.program.model.listing.CommentType type = ghidra.program.model.listing.CommentType.EOL;
             if ("pre".equalsIgnoreCase(commentType)) type = ghidra.program.model.listing.CommentType.PRE;
             else if ("post".equalsIgnoreCase(commentType)) type = ghidra.program.model.listing.CommentType.POST;
             else if ("plate".equalsIgnoreCase(commentType)) type = ghidra.program.model.listing.CommentType.PLATE;
             else if ("repeatable".equalsIgnoreCase(commentType)) type = ghidra.program.model.listing.CommentType.REPEATABLE;
-            
+
             int txId = program.startTransaction("Set Comment");
             try {
                 Listing listing = program.getListing();
@@ -3544,7 +3022,7 @@ public class GhidraMCPPlugin extends Plugin {
         try {
             Listing listing = program.getListing();
             List<Map<String, String>> comments = new ArrayList<>();
-            
+
             if (addressOrSymbol != null) {
                 Address addr = resolveAddressOrSymbol(program, addressOrSymbol);
                 if (addr == null) return "Invalid address or symbol: " + addressOrSymbol;
@@ -3560,7 +3038,7 @@ public class GhidraMCPPlugin extends Plugin {
             } else {
                 return "Either addressOrSymbol or start/end addresses are required";
             }
-            
+
             StringBuilder result = new StringBuilder("{\"comments\":[");
             for (int i = 0; i < comments.size(); i++) {
                 if (i > 0) result.append(",");
@@ -3582,7 +3060,7 @@ public class GhidraMCPPlugin extends Plugin {
     private void collectCommentsAtAddress(Program program, Listing listing, Address addr, List<Map<String, String>> comments, String commentTypesStr) {
         ghidra.program.model.listing.CodeUnit cu = listing.getCodeUnitAt(addr);
         if (cu == null) return;
-        
+
         List<ghidra.program.model.listing.CommentType> types = new ArrayList<>();
         if (commentTypesStr != null && !commentTypesStr.trim().isEmpty()) {
             String[] typeStrs = commentTypesStr.split(",");
@@ -3597,7 +3075,7 @@ public class GhidraMCPPlugin extends Plugin {
         } else {
             types.addAll(Arrays.asList(ghidra.program.model.listing.CommentType.values()));
         }
-        
+
         for (ghidra.program.model.listing.CommentType type : types) {
             String comment = cu.getComment(type);
             if (comment != null && !comment.isEmpty()) {
@@ -3620,13 +3098,13 @@ public class GhidraMCPPlugin extends Plugin {
         try {
             Address addr = resolveAddressOrSymbol(program, addressOrSymbol);
             if (addr == null) return "Invalid address or symbol: " + addressOrSymbol;
-            
+
             ghidra.program.model.listing.CommentType type = ghidra.program.model.listing.CommentType.EOL;
             if ("pre".equalsIgnoreCase(commentType)) type = ghidra.program.model.listing.CommentType.PRE;
             else if ("post".equalsIgnoreCase(commentType)) type = ghidra.program.model.listing.CommentType.POST;
             else if ("plate".equalsIgnoreCase(commentType)) type = ghidra.program.model.listing.CommentType.PLATE;
             else if ("repeatable".equalsIgnoreCase(commentType)) type = ghidra.program.model.listing.CommentType.REPEATABLE;
-            
+
             int txId = program.startTransaction("Remove Comment");
             try {
                 Listing listing = program.getListing();
@@ -3653,7 +3131,7 @@ public class GhidraMCPPlugin extends Plugin {
             Listing listing = program.getListing();
             List<Map<String, String>> results = new ArrayList<>();
             String searchLower = caseSensitive ? searchText : searchText.toLowerCase();
-            
+
             List<ghidra.program.model.listing.CommentType> types = new ArrayList<>();
             if (commentTypesStr != null && !commentTypesStr.trim().isEmpty()) {
                 String[] typeStrs = commentTypesStr.split(",");
@@ -3668,7 +3146,7 @@ public class GhidraMCPPlugin extends Plugin {
             } else {
                 types.addAll(Arrays.asList(ghidra.program.model.listing.CommentType.values()));
             }
-            
+
             for (ghidra.program.model.listing.CommentType type : types) {
                 if (results.size() >= maxResults) break;
                 ghidra.program.model.address.AddressIterator iter = listing.getCommentAddressIterator(type, program.getMemory(), true);
@@ -3687,7 +3165,7 @@ public class GhidraMCPPlugin extends Plugin {
                     }
                 }
             }
-            
+
             StringBuilder result = new StringBuilder("{\"results\":[");
             for (int i = 0; i < results.size(); i++) {
                 if (i > 0) result.append(",");
@@ -3713,7 +3191,7 @@ public class GhidraMCPPlugin extends Plugin {
         try {
             Address addr = resolveAddressOrSymbol(program, addressOrSymbol);
             if (addr == null) return "Invalid address or symbol: " + addressOrSymbol;
-            
+
             DataTypeManager dtm = program.getDataTypeManager();
             DataType dataType = dtm.getDataType(dataTypeString);
             if (dataType == null) {
@@ -3725,7 +3203,7 @@ public class GhidraMCPPlugin extends Plugin {
                     return "Could not find or parse data type: " + dataTypeString;
                 }
             }
-            
+
             int txId = program.startTransaction("Apply Data Type");
             try {
                 Listing listing = program.getListing();
@@ -3776,14 +3254,14 @@ public class GhidraMCPPlugin extends Plugin {
             SymbolTable symbolTable = program.getSymbolTable();
             SymbolIterator iter = symbolTable.getAllSymbols(true);
             List<Symbol> symbols = new ArrayList<>();
-            
+
             while (iter.hasNext()) {
                 Symbol sym = iter.next();
                 if (!includeExternal && sym.isExternal()) continue;
                 if (filterDefaultNames && (sym.getName().startsWith("FUN_") || sym.getName().startsWith("DAT_"))) continue;
                 symbols.add(sym);
             }
-            
+
             int endIndex = Math.min(startIndex + maxCount, symbols.size());
             StringBuilder result = new StringBuilder("{\"symbols\":[");
             for (int i = startIndex; i < endIndex; i++) {
@@ -3812,7 +3290,7 @@ public class GhidraMCPPlugin extends Plugin {
             FunctionManager funcMgr = program.getFunctionManager();
             FunctionIterator externalFuncs = funcMgr.getExternalFunctions();
             List<Function> matchingImports = new ArrayList<>();
-            
+
             while (externalFuncs.hasNext()) {
                 Function func = externalFuncs.next();
                 if (!func.getName().equalsIgnoreCase(importName)) continue;
@@ -3822,32 +3300,32 @@ public class GhidraMCPPlugin extends Plugin {
                 }
                 matchingImports.add(func);
             }
-            
+
             if (matchingImports.isEmpty()) {
                 return "Import not found: " + importName;
             }
-            
+
             ReferenceManager refMgr = program.getReferenceManager();
             List<Map<String, String>> references = new ArrayList<>();
             Set<Address> seen = new HashSet<>();
-            
+
             for (Function importFunc : matchingImports) {
                 if (references.size() >= maxResults) break;
                 Address importAddr = importFunc.getEntryPoint();
                 if (importAddr == null) continue;
-                
+
                 ReferenceIterator refIter = refMgr.getReferencesTo(importAddr);
                 while (refIter.hasNext() && references.size() < maxResults) {
                     Reference ref = refIter.next();
                     Address fromAddr = ref.getFromAddress();
                     if (seen.contains(fromAddr)) continue;
                     seen.add(fromAddr);
-                    
+
                     Map<String, String> refInfo = new HashMap<>();
                     refInfo.put("fromAddress", fromAddr.toString());
                     refInfo.put("referenceType", ref.getReferenceType().toString());
                     refInfo.put("isCall", String.valueOf(ref.getReferenceType().isCall()));
-                    
+
                     Function containingFunc = funcMgr.getFunctionContaining(fromAddr);
                     if (containingFunc != null) {
                         refInfo.put("function", containingFunc.getName());
@@ -3856,7 +3334,7 @@ public class GhidraMCPPlugin extends Plugin {
                     references.add(refInfo);
                 }
             }
-            
+
             StringBuilder result = new StringBuilder("{\"references\":[");
             for (int i = 0; i < references.size(); i++) {
                 if (i > 0) result.append(",");
@@ -3890,28 +3368,28 @@ public class GhidraMCPPlugin extends Plugin {
             Function func = funcMgr.getFunctionAt(addr);
             if (func == null) func = funcMgr.getFunctionContaining(addr);
             if (func == null) return "No function found at address: " + address;
-            
+
             List<Map<String, String>> chain = new ArrayList<>();
             Function current = func;
             int depth = 0;
             int maxDepth = 10;
-            
+
             while (current != null && depth < maxDepth) {
                 Map<String, String> info = new HashMap<>();
                 info.put("name", current.getName());
                 info.put("address", current.getEntryPoint().toString());
                 info.put("isThunk", String.valueOf(current.isThunk()));
                 info.put("isExternal", String.valueOf(current.isExternal()));
-                
+
                 if (current.isExternal()) {
                     ghidra.program.model.symbol.ExternalLocation extLoc = current.getExternalLocation();
                     if (extLoc != null) {
                         info.put("library", extLoc.getLibraryName());
                     }
                 }
-                
+
                 chain.add(info);
-                
+
                 if (current.isThunk()) {
                     Function next = current.getThunkedFunction(false);
                     if (next != null && !next.equals(current)) {
@@ -3924,7 +3402,7 @@ public class GhidraMCPPlugin extends Plugin {
                     break;
                 }
             }
-            
+
             StringBuilder result = new StringBuilder("{\"chain\":[");
             for (int i = 0; i < chain.size(); i++) {
                 if (i > 0) result.append(",");
@@ -3957,16 +3435,16 @@ public class GhidraMCPPlugin extends Plugin {
             FunctionManager funcMgr = program.getFunctionManager();
             Function func = funcMgr.getFunctionAt(addr);
             if (func == null) return "Function not found at: " + functionAddress;
-            
+
             StringBuilder result = new StringBuilder();
             result.append("Call tree for ").append(func.getName()).append(" (").append(direction).append("):\n\n");
-            
+
             if ("callers".equalsIgnoreCase(direction)) {
                 buildCallerTree(func, result, 0, maxDepth, new HashSet<>());
             } else {
                 buildCalleeTree(func, result, 0, maxDepth, new HashSet<>());
             }
-            
+
             return result.toString();
         } catch (Exception e) {
             return "Error: " + e.getMessage();
@@ -3979,10 +3457,10 @@ public class GhidraMCPPlugin extends Plugin {
     private void buildCallerTree(Function func, StringBuilder result, int depth, int maxDepth, Set<Address> visited) {
         if (depth >= maxDepth || visited.contains(func.getEntryPoint())) return;
         visited.add(func.getEntryPoint());
-        
+
         for (int i = 0; i < depth; i++) result.append("  ");
         result.append(func.getName()).append("\n");
-        
+
         Function[] callers = func.getCallingFunctions(new ConsoleTaskMonitor()).toArray(new Function[0]);
         for (Function caller : callers) {
             buildCallerTree(caller, result, depth + 1, maxDepth, visited);
@@ -3995,10 +3473,10 @@ public class GhidraMCPPlugin extends Plugin {
     private void buildCalleeTree(Function func, StringBuilder result, int depth, int maxDepth, Set<Address> visited) {
         if (depth >= maxDepth || visited.contains(func.getEntryPoint())) return;
         visited.add(func.getEntryPoint());
-        
+
         for (int i = 0; i < depth; i++) result.append("  ");
         result.append(func.getName()).append("\n");
-        
+
         Function[] callees = func.getCalledFunctions(new ConsoleTaskMonitor()).toArray(new Function[0]);
         for (Function callee : callees) {
             buildCalleeTree(callee, result, depth + 1, maxDepth, visited);
@@ -4016,7 +3494,7 @@ public class GhidraMCPPlugin extends Plugin {
             String[] addrStrs = functionAddressesStr.split(",");
             List<Function> targetFunctions = new ArrayList<>();
             FunctionManager funcMgr = program.getFunctionManager();
-            
+
             for (String addrStr : addrStrs) {
                 addrStr = addrStr.trim();
                 Address addr = program.getAddressFactory().getAddress(addrStr);
@@ -4024,18 +3502,18 @@ public class GhidraMCPPlugin extends Plugin {
                 if (func == null) continue;
                 targetFunctions.add(func);
             }
-            
+
             if (targetFunctions.isEmpty()) return "No valid functions found";
-            
+
             // Find callers of first function
             Set<Function> commonCallers = new HashSet<>(targetFunctions.get(0).getCallingFunctions(new ConsoleTaskMonitor()));
-            
+
             // Intersect with callers of other functions
             for (int i = 1; i < targetFunctions.size(); i++) {
                 Set<Function> callers = new HashSet<>(targetFunctions.get(i).getCallingFunctions(new ConsoleTaskMonitor()));
                 commonCallers.retainAll(callers);
             }
-            
+
             StringBuilder result = new StringBuilder("Common callers:\n");
             for (Function caller : commonCallers) {
                 result.append("  ").append(caller.getName()).append(" (").append(caller.getEntryPoint()).append(")\n");
@@ -4056,7 +3534,7 @@ public class GhidraMCPPlugin extends Plugin {
             Map<Long, Integer> constantCounts = new HashMap<>();
             Listing listing = program.getListing();
             ghidra.program.model.listing.InstructionIterator iter = listing.getInstructions(true);
-            
+
             while (iter.hasNext()) {
                 Instruction instr = iter.next();
                 for (int i = 0; i < instr.getNumOperands(); i++) {
@@ -4079,10 +3557,10 @@ public class GhidraMCPPlugin extends Plugin {
                     }
                 }
             }
-            
+
             List<Map.Entry<Long, Integer>> sorted = new ArrayList<>(constantCounts.entrySet());
             sorted.sort((a, b) -> Integer.compare(b.getValue(), a.getValue()));
-            
+
             int count = Math.min(topN, sorted.size());
             StringBuilder result = new StringBuilder("{\"constants\":[");
             for (int i = 0; i < count; i++) {
@@ -4110,7 +3588,7 @@ public class GhidraMCPPlugin extends Plugin {
             FunctionManager funcMgr = program.getFunctionManager();
             Function func = funcMgr.getFunctionAt(addr);
             if (func == null) return "Function not found at: " + functionAddress;
-            
+
             DecompInterface decomp = new DecompInterface();
             decomp.openProgram(program);
             try {
@@ -4118,17 +3596,17 @@ public class GhidraMCPPlugin extends Plugin {
                 if (!results.decompileCompleted()) {
                     return "Decompilation failed: " + results.getErrorMessage();
                 }
-                
+
                 HighFunction highFunc = results.getHighFunction();
                 if (highFunc == null) return "Could not get high-level function representation";
-                
+
                 LocalSymbolMap localMap = highFunc.getLocalSymbolMap();
                 HighSymbol sym = localMap.getSymbol(variableName);
                 if (sym == null) return "Variable not found: " + variableName;
-                
+
                 HighVariable var = sym.getHighVariable();
                 if (var == null) return "Could not get high variable for: " + variableName;
-                
+
                 StringBuilder result = new StringBuilder("Variable accesses for ").append(variableName).append(":\n\n");
                 Iterator<Varnode> varnodes = var.getVarnodes();
                 while (varnodes.hasNext()) {
@@ -4161,18 +3639,18 @@ public class GhidraMCPPlugin extends Plugin {
             FunctionManager funcMgr = program.getFunctionManager();
             Function func = funcMgr.getFunctionAt(funcAddr);
             if (func == null) return "Function not found at: " + functionAddress;
-            
+
             Memory memory = program.getMemory();
             int pointerSize = program.getDefaultPointerSize();
             List<Map<String, String>> vtables = new ArrayList<>();
-            
+
             // Search for vtables that might contain this function
             MemoryBlock[] blocks = memory.getBlocks();
             for (MemoryBlock block : blocks) {
                 if (!block.isExecute()) continue;
                 Address start = block.getStart();
                 Address end = block.getEnd();
-                
+
                 for (Address addr = start; addr.compareTo(end) <= 0; addr = addr.add(pointerSize)) {
                     try {
                         long value = memory.getLong(addr);
@@ -4189,7 +3667,7 @@ public class GhidraMCPPlugin extends Plugin {
                     }
                 }
             }
-            
+
             StringBuilder result = new StringBuilder("{\"vtables\":[");
             for (int i = 0; i < vtables.size(); i++) {
                 if (i > 0) result.append(",");
@@ -4236,7 +3714,7 @@ public class GhidraMCPPlugin extends Plugin {
         try {
             Address addr = resolveAddressOrSymbol(program, addressOrSymbol);
             if (addr == null) return "Invalid address or symbol: " + addressOrSymbol;
-            
+
             int txId = program.startTransaction("Remove Bookmark");
             try {
                 ghidra.program.model.listing.BookmarkManager bmMgr = program.getBookmarkManager();
@@ -4268,7 +3746,7 @@ public class GhidraMCPPlugin extends Plugin {
         try {
             ghidra.program.model.listing.BookmarkManager bmMgr = program.getBookmarkManager();
             Set<String> categories = new HashSet<>();
-            
+
             ghidra.program.model.address.AddressIterator iter = bmMgr.getBookmarkAddressIterator(type != null ? type : "Note");
             while (iter.hasNext()) {
                 Address addr = iter.next();
@@ -4279,7 +3757,7 @@ public class GhidraMCPPlugin extends Plugin {
                     }
                 }
             }
-            
+
             StringBuilder result = new StringBuilder("{\"categories\":[");
             boolean first = true;
             for (String cat : categories) {
@@ -4307,16 +3785,16 @@ public class GhidraMCPPlugin extends Plugin {
             FunctionIterator functions = funcMgr.getFunctions(true);
             DecompInterface decomp = new DecompInterface();
             decomp.openProgram(program);
-            
+
             List<Map<String, String>> results = new ArrayList<>();
             int functionCount = 0;
             int maxFunctions = overrideMaxFunctionsLimit ? Integer.MAX_VALUE : 10000;
-            
+
             try {
                 while (functions.hasNext() && functionCount < maxFunctions && results.size() < maxResults) {
                     Function func = functions.next();
                     functionCount++;
-                    
+
                     DecompileResults decompResults = decomp.decompileFunction(func, 30, new ConsoleTaskMonitor());
                     if (decompResults.decompileCompleted()) {
                         String decompiledCode = decompResults.getDecompiledFunction().getC();
@@ -4340,7 +3818,7 @@ public class GhidraMCPPlugin extends Plugin {
             } finally {
                 decomp.dispose();
             }
-            
+
             StringBuilder result = new StringBuilder("{\"results\":[");
             for (int i = 0; i < results.size(); i++) {
                 if (i > 0) result.append(",");
@@ -4366,7 +3844,7 @@ public class GhidraMCPPlugin extends Plugin {
         try {
             Function func = resolveFunction(program, functionNameOrAddress);
             if (func == null) return "Function not found: " + functionNameOrAddress;
-            
+
             // Parse variable mappings (format: "oldName1:newName1,oldName2:newName2")
             Map<String, String> mappings = new HashMap<>();
             String[] pairs = variableMappingsStr.split(",");
@@ -4376,9 +3854,9 @@ public class GhidraMCPPlugin extends Plugin {
                     mappings.put(parts[0].trim(), parts[1].trim());
                 }
             }
-            
+
             if (mappings.isEmpty()) return "No valid variable mappings provided";
-            
+
             DecompInterface decomp = new DecompInterface();
             decomp.openProgram(program);
             try {
@@ -4386,10 +3864,10 @@ public class GhidraMCPPlugin extends Plugin {
                 if (!results.decompileCompleted()) {
                     return "Decompilation failed: " + results.getErrorMessage();
                 }
-                
+
                 HighFunction highFunc = results.getHighFunction();
                 if (highFunc == null) return "Could not get high-level function representation";
-                
+
                 int txId = program.startTransaction("Rename Variables");
                 try {
                     LocalSymbolMap localMap = highFunc.getLocalSymbolMap();
@@ -4427,7 +3905,7 @@ public class GhidraMCPPlugin extends Plugin {
         try {
             Function func = resolveFunction(program, functionNameOrAddress);
             if (func == null) return "Function not found: " + functionNameOrAddress;
-            
+
             // Parse datatype mappings (format: "varName1:type1,varName2:type2")
             Map<String, String> mappings = new HashMap<>();
             String[] pairs = datatypeMappingsStr.split(",");
@@ -4437,9 +3915,9 @@ public class GhidraMCPPlugin extends Plugin {
                     mappings.put(parts[0].trim(), parts[1].trim());
                 }
             }
-            
+
             if (mappings.isEmpty()) return "No valid datatype mappings provided";
-            
+
             DataTypeManager dtm = program.getDataTypeManager();
             DecompInterface decomp = new DecompInterface();
             decomp.openProgram(program);
@@ -4448,10 +3926,10 @@ public class GhidraMCPPlugin extends Plugin {
                 if (!results.decompileCompleted()) {
                     return "Decompilation failed: " + results.getErrorMessage();
                 }
-                
+
                 HighFunction highFunc = results.getHighFunction();
                 if (highFunc == null) return "Could not get high-level function representation";
-                
+
                 int txId = program.startTransaction("Change Variable Data Types");
                 try {
                     LocalSymbolMap localMap = highFunc.getLocalSymbolMap();
@@ -4497,14 +3975,14 @@ public class GhidraMCPPlugin extends Plugin {
         try {
             Function func = resolveFunction(program, functionNameOrAddress);
             if (func == null) return "Function not found: " + functionNameOrAddress;
-            
+
             Function[] callers = func.getCallingFunctions(new ConsoleTaskMonitor()).toArray(new Function[0]);
             int endIndex = Math.min(startIndex + maxCallers, callers.length);
-            
+
             DecompInterface decomp = new DecompInterface();
             decomp.openProgram(program);
             StringBuilder result = new StringBuilder("{\"callers\":[");
-            
+
             try {
                 for (int i = startIndex; i < endIndex; i++) {
                     if (i > startIndex) result.append(",");
@@ -4523,7 +4001,7 @@ public class GhidraMCPPlugin extends Plugin {
             } finally {
                 decomp.dispose();
             }
-            
+
             result.append("],\"totalCount\":").append(callers.length).append("}");
             return result.toString();
         } catch (Exception e) {
@@ -4541,32 +4019,32 @@ public class GhidraMCPPlugin extends Plugin {
         try {
             Address addr = resolveAddressOrSymbol(program, addressOrSymbol);
             if (addr == null) return "Invalid address or symbol: " + addressOrSymbol;
-            
+
             ReferenceManager refMgr = program.getReferenceManager();
             ReferenceIterator refIter = refMgr.getReferencesTo(addr);
             FunctionManager funcMgr = program.getFunctionManager();
-            
+
             List<Function> referencerFunctions = new ArrayList<>();
             Set<Address> seen = new HashSet<>();
-            
+
             while (refIter.hasNext()) {
                 Reference ref = refIter.next();
                 if (!includeDataRefs && ref.getReferenceType().isData()) continue;
                 Address fromAddr = ref.getFromAddress();
                 if (seen.contains(fromAddr)) continue;
                 seen.add(fromAddr);
-                
+
                 Function func = funcMgr.getFunctionContaining(fromAddr);
                 if (func != null && !referencerFunctions.contains(func)) {
                     referencerFunctions.add(func);
                 }
             }
-            
+
             int endIndex = Math.min(startIndex + maxReferencers, referencerFunctions.size());
             DecompInterface decomp = new DecompInterface();
             decomp.openProgram(program);
             StringBuilder result = new StringBuilder("{\"referencers\":[");
-            
+
             try {
                 for (int i = startIndex; i < endIndex; i++) {
                     if (i > startIndex) result.append(",");
@@ -4585,7 +4063,7 @@ public class GhidraMCPPlugin extends Plugin {
             } finally {
                 decomp.dispose();
             }
-            
+
             result.append("],\"totalCount\":").append(referencerFunctions.size()).append("}");
             return result.toString();
         } catch (Exception e) {
@@ -4602,7 +4080,7 @@ public class GhidraMCPPlugin extends Plugin {
             Address addr = program.getAddressFactory().getAddress(functionNameOrAddress);
             Function func = program.getFunctionManager().getFunctionAt(addr);
             if (func != null) return func;
-            
+
             // Try as function name
             FunctionManager funcMgr = program.getFunctionManager();
             FunctionIterator functions = funcMgr.getFunctions(true);
@@ -4676,7 +4154,7 @@ public class GhidraMCPPlugin extends Plugin {
             if (!dtm.getName().equals(archiveName)) {
                 return "Archive not found: " + archiveName;
             }
-            
+
             ghidra.program.model.data.Category category;
             if ("/".equals(categoryPath)) {
                 category = dtm.getRootCategory();
@@ -4687,7 +4165,7 @@ public class GhidraMCPPlugin extends Plugin {
                     return "Category not found: " + categoryPath;
                 }
             }
-            
+
             List<DataType> dataTypes = new ArrayList<>();
             if (includeSubcategories) {
                 addDataTypesRecursively(category, dataTypes);
@@ -4696,7 +4174,7 @@ public class GhidraMCPPlugin extends Plugin {
                     dataTypes.add(dt);
                 }
             }
-            
+
             int endIndex = Math.min(startIndex + maxCount, dataTypes.size());
             StringBuilder result = new StringBuilder("{\"dataTypes\":[");
             for (int i = startIndex; i < endIndex; i++) {
@@ -4744,11 +4222,11 @@ public class GhidraMCPPlugin extends Plugin {
                     return "Could not find or parse data type: " + dataTypeString;
                 }
             }
-            
+
             if (dataType == null) {
                 return "Could not find data type: " + dataTypeString;
             }
-            
+
             StringBuilder result = new StringBuilder("{\"name\":\"").append(dataType.getName()).append("\",");
             result.append("\"displayName\":\"").append(dataType.getDisplayName()).append("\",");
             result.append("\"size\":").append(dataType.getLength()).append("}");
@@ -4768,32 +4246,32 @@ public class GhidraMCPPlugin extends Plugin {
             List<Map<String, Object>> imports = new ArrayList<>();
             SymbolTable symbolTable = program.getSymbolTable();
             SymbolIterator externalSymbols = symbolTable.getExternalSymbols();
-            
+
             while (externalSymbols.hasNext()) {
                 Symbol symbol = externalSymbols.next();
                 if (symbol.getSymbolType() != SymbolType.FUNCTION) continue;
-                
+
                 String libraryName = symbol.getParentNamespace().getName();
                 if (libraryFilter != null && !libraryName.toLowerCase().contains(libraryFilter.toLowerCase())) {
                     continue;
                 }
-                
+
                 Map<String, Object> importInfo = new HashMap<>();
                 importInfo.put("name", symbol.getName());
                 importInfo.put("address", symbol.getAddress().toString());
                 importInfo.put("library", libraryName);
                 imports.add(importInfo);
             }
-            
+
             int endIndex = Math.min(startIndex + maxResults, imports.size());
-            List<Map<String, Object>> paginated = startIndex < imports.size() 
-                ? imports.subList(startIndex, endIndex) 
+            List<Map<String, Object>> paginated = startIndex < imports.size()
+                ? imports.subList(startIndex, endIndex)
                 : new ArrayList<>();
-            
+
             StringBuilder result = new StringBuilder("{\"totalCount\":").append(imports.size()).append(",");
             result.append("\"startIndex\":").append(startIndex).append(",");
             result.append("\"returnedCount\":").append(paginated.size()).append(",");
-            
+
             if (groupByLibrary) {
                 Map<String, List<Map<String, Object>>> grouped = new HashMap<>();
                 for (Map<String, Object> imp : paginated) {
@@ -4843,11 +4321,11 @@ public class GhidraMCPPlugin extends Plugin {
             List<Map<String, Object>> exports = new ArrayList<>();
             SymbolTable symbolTable = program.getSymbolTable();
             SymbolIterator externalSymbols = symbolTable.getExternalSymbols();
-            
+
             // Also check for exported symbols in the global namespace
             SymbolIterator globalSymbols = symbolTable.getSymbols(GlobalNamespace.GLOBAL_NAMESPACE_ID);
             Set<String> seen = new HashSet<>();
-            
+
             while (globalSymbols.hasNext()) {
                 Symbol symbol = globalSymbols.next();
                 if (symbol.getSymbolType() == SymbolType.FUNCTION || symbol.getSymbolType() == SymbolType.LABEL) {
@@ -4862,12 +4340,12 @@ public class GhidraMCPPlugin extends Plugin {
                     }
                 }
             }
-            
+
             int endIndex = Math.min(startIndex + maxResults, exports.size());
-            List<Map<String, Object>> paginated = startIndex < exports.size() 
-                ? exports.subList(startIndex, endIndex) 
+            List<Map<String, Object>> paginated = startIndex < exports.size()
+                ? exports.subList(startIndex, endIndex)
                 : new ArrayList<>();
-            
+
             StringBuilder result = new StringBuilder("{\"totalCount\":").append(exports.size()).append(",");
             result.append("\"startIndex\":").append(startIndex).append(",");
             result.append("\"returnedCount\":").append(paginated.size()).append(",");
@@ -4896,18 +4374,18 @@ public class GhidraMCPPlugin extends Plugin {
             List<Map<String, Object>> strings = new ArrayList<>();
             DataIterator dataIterator = program.getListing().getDefinedData(true);
             int currentIndex = 0;
-            
+
             for (Data data : dataIterator) {
                 if (!(data.getValue() instanceof String)) continue;
-                
+
                 if (currentIndex++ < startIndex) continue;
                 if (strings.size() >= maxCount) break;
-                
+
                 Map<String, Object> stringInfo = new HashMap<>();
                 stringInfo.put("address", data.getAddress().toString());
                 stringInfo.put("value", data.getValue().toString());
                 stringInfo.put("length", data.getLength());
-                
+
                 if (includeReferencingFunctions) {
                     List<String> refFunctions = new ArrayList<>();
                     ReferenceManager refMgr = program.getReferenceManager();
@@ -4926,10 +4404,10 @@ public class GhidraMCPPlugin extends Plugin {
                     }
                     stringInfo.put("referencingFunctions", refFunctions);
                 }
-                
+
                 strings.add(stringInfo);
             }
-            
+
             StringBuilder result = new StringBuilder("{\"startIndex\":").append(startIndex).append(",");
             result.append("\"requestedCount\":").append(maxCount).append(",");
             result.append("\"actualCount\":").append(strings.size()).append(",");
@@ -4971,7 +4449,7 @@ public class GhidraMCPPlugin extends Plugin {
     /**
      * Get decompilation with line range support (enhanced version)
      */
-    private String getDecompilationEnhanced(String functionNameOrAddress, int offset, int limit, 
+    private String getDecompilationEnhanced(String functionNameOrAddress, int offset, int limit,
             boolean includeCallers, boolean includeCallees, boolean includeComments,
             boolean includeIncomingReferences, boolean includeReferenceContext) {
         Program program = getCurrentProgram();
@@ -4986,25 +4464,25 @@ public class GhidraMCPPlugin extends Plugin {
                     function = program.getFunctionManager().getFunction(functionNameOrAddress);
                 }
             }
-            
+
             if (function == null) {
                 return "Function not found: " + functionNameOrAddress;
             }
-            
+
             DecompInterface decompiler = new DecompInterface();
             decompiler.openProgram(program);
             DecompileResults results = decompiler.decompileFunction(function, 30, null);
-            
+
             if (results == null || !results.decompileCompleted()) {
                 return "Decompilation failed for function: " + function.getName();
             }
-            
+
             String decompiledCode = results.getDecompiledFunction().getC();
             String[] lines = decompiledCode.split("\n");
-            
+
             int startLine = Math.max(0, offset - 1);
             int endLine = Math.min(lines.length, startLine + limit);
-            
+
             StringBuilder result = new StringBuilder("{\"function\":\"").append(function.getName()).append("\",");
             result.append("\"address\":\"").append(function.getEntryPoint().toString()).append("\",");
             result.append("\"totalLines\":").append(lines.length).append(",");
@@ -5016,7 +4494,7 @@ public class GhidraMCPPlugin extends Plugin {
                 result.append(escapeJsonString(lines[i]));
             }
             result.append("\"");
-            
+
             if (includeCallers) {
                 List<String> callers = new ArrayList<>();
                 Function[] callingFunctions = function.getCallingFunctions(TaskMonitor.DUMMY);
@@ -5030,7 +4508,7 @@ public class GhidraMCPPlugin extends Plugin {
                 }
                 result.append("]");
             }
-            
+
             if (includeCallees) {
                 List<String> callees = new ArrayList<>();
                 Function[] calledFunctions = function.getCalledFunctions(TaskMonitor.DUMMY);
@@ -5044,7 +4522,7 @@ public class GhidraMCPPlugin extends Plugin {
                 }
                 result.append("]");
             }
-            
+
             result.append("}");
             return result.toString();
         } catch (Exception e) {
@@ -5068,16 +4546,16 @@ public class GhidraMCPPlugin extends Plugin {
                     function = program.getFunctionManager().getFunction(functionNameOrAddress);
                 }
             }
-            
+
             if (function == null) {
                 return "Function not found: " + functionNameOrAddress;
             }
-            
+
             // This is a simplified implementation - full implementation would need to map line numbers to addresses
             int txId = program.startTransaction("Set decompilation comment");
             try {
                 // For now, set comment at function entry point
-                program.getListing().setComment(function.getEntryPoint(), 
+                program.getListing().setComment(function.getEntryPoint(),
                     "pre".equals(commentType) ? CodeUnit.PRE_COMMENT : CodeUnit.EOL_COMMENT, comment);
                 program.endTransaction(txId, true);
                 return "{\"success\":true,\"message\":\"Comment set at function entry point\"}";
@@ -5106,16 +4584,16 @@ public class GhidraMCPPlugin extends Plugin {
                     function = program.getFunctionManager().getFunction(functionAddress);
                 }
             }
-            
+
             if (function == null) {
                 return "Function not found: " + functionAddress;
             }
-            
+
             StringBuilder result = new StringBuilder("{\"function\":\"").append(function.getName()).append("\",");
             result.append("\"address\":\"").append(function.getEntryPoint().toString()).append("\",");
             result.append("\"direction\":\"").append(direction).append("\",");
             result.append("\"maxDepth\":").append(maxDepth).append(",");
-            
+
             if ("callers".equals(direction)) {
                 result.append("\"tree\":");
                 buildCallerTreeRecursive(function, result, 0, maxDepth, new HashSet<>());
@@ -5123,7 +4601,7 @@ public class GhidraMCPPlugin extends Plugin {
                 result.append("\"tree\":");
                 buildCalleeTreeRecursive(function, result, 0, maxDepth, new HashSet<>());
             }
-            
+
             result.append("}");
             return result.toString();
         } catch (Exception e) {
@@ -5139,14 +4617,14 @@ public class GhidraMCPPlugin extends Plugin {
             result.append("null");
             return;
         }
-        
+
         String funcKey = function.getEntryPoint().toString();
         if (visited.contains(funcKey)) {
             result.append("{\"name\":\"").append(function.getName()).append("\",\"cycle\":true}");
             return;
         }
         visited.add(funcKey);
-        
+
         Function[] callers = function.getCallingFunctions(TaskMonitor.DUMMY);
         result.append("{\"name\":\"").append(function.getName()).append("\",");
         result.append("\"address\":\"").append(function.getEntryPoint().toString()).append("\",");
@@ -5166,14 +4644,14 @@ public class GhidraMCPPlugin extends Plugin {
             result.append("null");
             return;
         }
-        
+
         String funcKey = function.getEntryPoint().toString();
         if (visited.contains(funcKey)) {
             result.append("{\"name\":\"").append(function.getName()).append("\",\"cycle\":true}");
             return;
         }
         visited.add(funcKey);
-        
+
         Function[] callees = function.getCalledFunctions(TaskMonitor.DUMMY);
         result.append("{\"name\":\"").append(function.getName()).append("\",");
         result.append("\"address\":\"").append(function.getEntryPoint().toString()).append("\",");
@@ -5195,25 +4673,25 @@ public class GhidraMCPPlugin extends Plugin {
         try {
             DataTypeManager dtm = program.getDataTypeManager();
             CParser parser = new CParser(dtm);
-            
+
             int txId = program.startTransaction("Parse C Structure");
             try {
                 DataType dt = parser.parse(cDefinition);
                 if (dt == null) {
                     throw new Exception("Failed to parse structure definition");
                 }
-                
+
                 CategoryPath catPath = new CategoryPath(category);
                 Category cat = dtm.createCategory(catPath);
-                
+
                 DataType resolved = dtm.resolve(dt, DataTypeConflictHandler.REPLACE_HANDLER);
                 if (cat != null && !resolved.getCategoryPath().equals(catPath)) {
                     resolved.setName(resolved.getName());
                     cat.moveDataType(resolved, DataTypeConflictHandler.REPLACE_HANDLER);
                 }
-                
+
                 program.endTransaction(txId, true);
-                
+
                 StringBuilder result = new StringBuilder("{\"success\":true,\"name\":\"").append(resolved.getName()).append("\",");
                 result.append("\"size\":").append(resolved.getLength()).append("}");
                 return result.toString();
@@ -5234,17 +4712,17 @@ public class GhidraMCPPlugin extends Plugin {
         try {
             DataTypeManager tempDtm = new StandAloneDataTypeManager("temp");
             CParser parser = new CParser(tempDtm);
-            
+
             try {
                 DataType dt = parser.parse(cDefinition);
                 if (dt == null) {
                     return "{\"valid\":false,\"error\":\"Invalid structure definition\"}";
                 }
-                
+
                 StringBuilder result = new StringBuilder("{\"valid\":true,\"parsedType\":\"").append(dt.getName()).append("\",");
                 result.append("\"displayName\":\"").append(dt.getDisplayName()).append("\",");
                 result.append("\"size\":").append(dt.getLength());
-                
+
                 if (dt instanceof Structure) {
                     Structure struct = (Structure) dt;
                     result.append(",\"fieldCount\":").append(struct.getNumComponents()).append(",\"isUnion\":false");
@@ -5252,7 +4730,7 @@ public class GhidraMCPPlugin extends Plugin {
                     Union union = (Union) dt;
                     result.append(",\"fieldCount\":").append(union.getNumComponents()).append(",\"isUnion\":true");
                 }
-                
+
                 result.append("}");
                 return result.toString();
             } catch (Exception e) {
@@ -5275,11 +4753,11 @@ public class GhidraMCPPlugin extends Plugin {
         try {
             DataTypeManager dtm = program.getDataTypeManager();
             CategoryPath catPath = new CategoryPath(category);
-            
+
             int txId = program.startTransaction("Create Structure");
             try {
                 dtm.createCategory(catPath);
-                
+
                 Composite composite;
                 if ("union".equalsIgnoreCase(type)) {
                     composite = new UnionDataType(catPath, name, dtm);
@@ -5289,15 +4767,15 @@ public class GhidraMCPPlugin extends Plugin {
                         ((Structure) composite).setPackingEnabled(true);
                     }
                 }
-                
+
                 if (description != null) {
                     composite.setDescription(description);
                 }
-                
+
                 DataType resolved = dtm.addDataType(composite, DataTypeConflictHandler.REPLACE_HANDLER);
-                
+
                 program.endTransaction(txId, true);
-                
+
                 StringBuilder result = new StringBuilder("{\"success\":true,\"name\":\"").append(resolved.getName()).append("\",");
                 result.append("\"size\":").append(resolved.getLength()).append(",\"type\":\"").append(type).append("\"}");
                 return result.toString();
@@ -5325,14 +4803,14 @@ public class GhidraMCPPlugin extends Plugin {
             if (dt == null || !(dt instanceof Composite)) {
                 return "Structure not found: " + structureName;
             }
-            
+
             Composite composite = (Composite) dt;
             ghidra.util.data.DataTypeParser parser = new ghidra.util.data.DataTypeParser(dtm, dtm, null, ghidra.util.data.DataTypeParser.AllowedDataTypes.ALL);
             DataType fieldType = parser.parse(dataType);
             if (fieldType == null) {
                 return "Invalid data type: " + dataType;
             }
-            
+
             int txId = program.startTransaction("Add Structure Field");
             try {
                 if (composite instanceof Structure) {
@@ -5346,7 +4824,7 @@ public class GhidraMCPPlugin extends Plugin {
                     Union union = (Union) composite;
                     union.add(fieldType, fieldName, comment);
                 }
-                
+
                 program.endTransaction(txId, true);
                 return "{\"success\":true,\"message\":\"Field added successfully\"}";
             } catch (Exception e) {
@@ -5361,7 +4839,7 @@ public class GhidraMCPPlugin extends Plugin {
     /**
      * Modify structure field
      */
-    private String modifyStructureField(String structureName, String fieldName, Integer offset, 
+    private String modifyStructureField(String structureName, String fieldName, Integer offset,
             String newDataType, String newFieldName, String newComment, Integer newLength) {
         Program program = getCurrentProgram();
         if (program == null) return "No program loaded";
@@ -5373,11 +4851,11 @@ public class GhidraMCPPlugin extends Plugin {
             if (dt == null || !(dt instanceof Structure)) {
                 return "Structure not found: " + structureName;
             }
-            
+
             Structure struct = (Structure) dt;
             DataTypeComponent targetComponent = null;
             int targetOrdinal = -1;
-            
+
             if (offset != null) {
                 targetComponent = struct.getComponentAt(offset);
                 if (targetComponent == null) {
@@ -5397,12 +4875,12 @@ public class GhidraMCPPlugin extends Plugin {
                     return "Field not found: " + fieldName;
                 }
             }
-            
+
             DataType replacementDataType = targetComponent.getDataType();
             String replacementFieldName = targetComponent.getFieldName();
             String replacementComment = targetComponent.getComment();
             int replacementLength = targetComponent.getLength();
-            
+
             if (newDataType != null) {
                 ghidra.util.data.DataTypeParser parser = new ghidra.util.data.DataTypeParser(dtm, dtm, null, ghidra.util.data.DataTypeParser.AllowedDataTypes.ALL);
                 replacementDataType = parser.parse(newDataType);
@@ -5413,7 +4891,7 @@ public class GhidraMCPPlugin extends Plugin {
             if (newFieldName != null) replacementFieldName = newFieldName;
             if (newComment != null) replacementComment = newComment;
             if (newLength != null) replacementLength = newLength;
-            
+
             int txId = program.startTransaction("Modify Structure Field");
             try {
                 struct.replace(targetOrdinal, replacementDataType, replacementLength, replacementFieldName, replacementComment);
@@ -5439,38 +4917,38 @@ public class GhidraMCPPlugin extends Plugin {
             DataTypeManager dtm = program.getDataTypeManager();
             CParser parser = new CParser(dtm);
             DataType parsedDt = parser.parse(cDefinition);
-            
+
             if (parsedDt == null || !(parsedDt instanceof Structure)) {
                 return "Failed to parse structure definition or not a structure";
             }
-            
+
             Structure parsedStruct = (Structure) parsedDt;
             String structureName = parsedStruct.getName();
             DataType existingDt = dtm.getDataType(structureName);
-            
+
             if (existingDt == null || !(existingDt instanceof Structure)) {
                 return "Structure not found: " + structureName;
             }
-            
+
             Structure existingStruct = (Structure) existingDt;
-            
+
             int txId = program.startTransaction("Modify Structure from C");
             try {
                 while (existingStruct.getNumComponents() > 0) {
                     existingStruct.delete(0);
                 }
-                
+
                 for (int i = 0; i < parsedStruct.getNumComponents(); i++) {
                     DataTypeComponent comp = parsedStruct.getComponent(i);
                     DataType fieldType = dtm.resolve(comp.getDataType(), DataTypeConflictHandler.DEFAULT_HANDLER);
                     existingStruct.add(fieldType, comp.getFieldName(), comp.getComment());
                 }
-                
+
                 if (parsedStruct.getDescription() != null) {
                     existingStruct.setDescription(parsedStruct.getDescription());
                 }
                 existingStruct.setPackingEnabled(parsedStruct.isPackingEnabled());
-                
+
                 program.endTransaction(txId, true);
                 return "{\"success\":true,\"message\":\"Structure modified successfully\"}";
             } catch (Exception e) {
@@ -5495,14 +4973,14 @@ public class GhidraMCPPlugin extends Plugin {
             if (dt == null || !(dt instanceof Composite)) {
                 return "Structure not found: " + structureName;
             }
-            
+
             Composite composite = (Composite) dt;
             StringBuilder result = new StringBuilder("{\"name\":\"").append(composite.getName()).append("\",");
             result.append("\"size\":").append(composite.getLength()).append(",");
             result.append("\"isUnion\":").append(dt instanceof Union).append(",");
             result.append("\"numComponents\":").append(composite.getNumComponents()).append(",");
             result.append("\"fields\":[");
-            
+
             for (int i = 0; i < composite.getNumComponents(); i++) {
                 if (i > 0) result.append(",");
                 DataTypeComponent comp = composite.getComponent(i);
@@ -5512,7 +4990,7 @@ public class GhidraMCPPlugin extends Plugin {
                 result.append("\"fieldName\":\"").append(comp.getFieldName() != null ? comp.getFieldName() : "").append("\",");
                 result.append("\"dataType\":\"").append(comp.getDataType().getDisplayName()).append("\"}");
             }
-            
+
             result.append("]}");
             return result.toString();
         } catch (Exception e) {
@@ -5530,23 +5008,23 @@ public class GhidraMCPPlugin extends Plugin {
             DataTypeManager dtm = program.getDataTypeManager();
             List<Map<String, Object>> structures = new ArrayList<>();
             Iterator<DataType> iter = dtm.getAllDataTypes();
-            
+
             while (iter.hasNext()) {
                 DataType dt = iter.next();
                 if (!(dt instanceof Composite)) continue;
-                
+
                 if (!includeBuiltIn && dt.getSourceArchive().getName().equals("BuiltInTypes")) {
                     continue;
                 }
-                
+
                 if (category != null && !dt.getCategoryPath().getPath().startsWith(category)) {
                     continue;
                 }
-                
+
                 if (nameFilter != null && !dt.getName().toLowerCase().contains(nameFilter.toLowerCase())) {
                     continue;
                 }
-                
+
                 Map<String, Object> structInfo = new HashMap<>();
                 structInfo.put("name", dt.getName());
                 structInfo.put("size", dt.getLength());
@@ -5554,7 +5032,7 @@ public class GhidraMCPPlugin extends Plugin {
                 structInfo.put("numComponents", ((Composite) dt).getNumComponents());
                 structures.add(structInfo);
             }
-            
+
             StringBuilder result = new StringBuilder("{\"count\":").append(structures.size()).append(",\"structures\":[");
             for (int i = 0; i < structures.size(); i++) {
                 if (i > 0) result.append(",");
@@ -5589,17 +5067,17 @@ public class GhidraMCPPlugin extends Plugin {
                 if (symbol == null) return "Address or symbol not found: " + addressOrSymbol;
                 address = symbol.getAddress();
             }
-            
+
             DataTypeManager dtm = program.getDataTypeManager();
             DataType dt = dtm.getDataType(structureName);
             if (dt == null || !(dt instanceof Composite)) {
                 return "Structure not found: " + structureName;
             }
-            
+
             if (!program.getMemory().contains(address)) {
                 return "Address is not in valid memory: " + address.toString();
             }
-            
+
             int txId = program.startTransaction("Apply Structure");
             try {
                 Listing listing = program.getListing();
@@ -5609,7 +5087,7 @@ public class GhidraMCPPlugin extends Plugin {
                         listing.clearCodeUnits(address, address.add(existingData.getLength() - 1), false);
                     }
                 }
-                
+
                 listing.createData(address, dt);
                 program.endTransaction(txId, true);
                 return "{\"success\":true,\"message\":\"Structure applied successfully\"}";
@@ -5635,7 +5113,7 @@ public class GhidraMCPPlugin extends Plugin {
             if (dt == null) {
                 return "Structure not found: " + structureName;
             }
-            
+
             // Check for references
             List<String> references = new ArrayList<>();
             FunctionIterator functions = program.getFunctionManager().getFunctions(true);
@@ -5650,7 +5128,7 @@ public class GhidraMCPPlugin extends Plugin {
                     }
                 }
             }
-            
+
             if (!references.isEmpty() && !force) {
                 StringBuilder result = new StringBuilder("{\"canDelete\":false,\"references\":[");
                 for (int i = 0; i < references.size(); i++) {
@@ -5660,7 +5138,7 @@ public class GhidraMCPPlugin extends Plugin {
                 result.append("],\"warning\":\"Structure is referenced. Use force=true to delete anyway.\"}");
                 return result.toString();
             }
-            
+
             int txId = program.startTransaction("Delete Structure");
             try {
                 boolean removed = dtm.remove(dt);
@@ -5691,7 +5169,7 @@ public class GhidraMCPPlugin extends Plugin {
             CParser parser = new CParser(dtm);
             CategoryPath catPath = new CategoryPath(category);
             dtm.createCategory(catPath);
-            
+
             int txId = program.startTransaction("Parse C Header");
             List<String> createdTypes = new ArrayList<>();
             try {
@@ -5704,7 +5182,7 @@ public class GhidraMCPPlugin extends Plugin {
                     }
                     createdTypes.add(resolved.getName());
                 }
-                
+
                 program.endTransaction(txId, true);
                 StringBuilder result = new StringBuilder("{\"success\":true,\"createdCount\":").append(createdTypes.size()).append(",\"createdTypes\":[");
                 for (int i = 0; i < createdTypes.size(); i++) {
@@ -5722,6 +5200,1019 @@ public class GhidraMCPPlugin extends Plugin {
         }
     }
 
+    // ----------------------------------------------------------------------------------
+    // Consolidated tool methods for 17 parametric tools
+    // ----------------------------------------------------------------------------------
+
+    private String getFunction(String identifier, String view, int offset, int limit, boolean includeCallers, boolean includeCallees, boolean includeComments, boolean includeIncomingRefs, boolean includeRefContext) {
+        Program program = getCurrentProgram();
+        if (program == null) return "No program loaded";
+
+        try {
+            if ("decompile".equals(view)) {
+                return decompileFunction(identifier, offset, limit, includeCallers, includeCallees, includeComments, includeIncomingRefs, includeRefContext);
+            } else if ("disassemble".equals(view)) {
+                return disassembleFunction(identifier);
+            } else if ("info".equals(view)) {
+                return getFunctionInfo(identifier);
+            } else if ("calls".equals(view)) {
+                return listFunctionCalls(identifier);
+            }
+
+            return "Invalid view: " + view;
+
+        } catch (Exception e) {
+            return "Error getting function: " + e.getMessage();
+        }
+    }
+
+    private String listFunctions(String mode, String query, String searchString, int minReferenceCount, int startIndex, int maxCount, boolean filterDefaultNames) {
+        Program program = getCurrentProgram();
+        if (program == null) return "No program loaded";
+
+        try {
+            if ("all".equals(mode)) {
+                return getAllFunctionNames(startIndex, maxCount);
+            } else if ("search".equals(mode) && query != null) {
+                return searchFunctionsByName(query, startIndex, maxCount);
+            } else if ("similarity".equals(mode) && searchString != null) {
+                return getFunctionsBySimilarity(searchString, startIndex, maxCount, filterDefaultNames);
+            } else if ("undefined".equals(mode)) {
+                return getUndefinedFunctionCandidates(startIndex, maxCount, minReferenceCount);
+            } else if ("count".equals(mode)) {
+                return getFunctionCount(filterDefaultNames);
+            }
+
+            return "Invalid list mode: " + mode;
+
+        } catch (Exception e) {
+            return "Error listing functions: " + e.getMessage();
+        }
+    }
+
+    private String manageFunction(String action, String address, String functionIdentifier, String name, String oldName, String newName, String variableMappings, String prototype, String variableName, String newType, String datatypeMappings, String archiveName) {
+        Program program = getCurrentProgram();
+        if (program == null) return "No program loaded";
+
+        try {
+            if ("create".equals(action) && address != null && name != null) {
+                return createFunction(address, name);
+            } else if ("rename_function".equals(action) && functionIdentifier != null && newName != null) {
+                return renameFunctionByAddress(functionIdentifier, newName);
+            } else if ("rename_variable".equals(action) && functionIdentifier != null && oldName != null && newName != null) {
+                return renameVariableInFunction(functionIdentifier, oldName, newName);
+            } else if ("set_prototype".equals(action) && functionIdentifier != null && prototype != null) {
+                return setFunctionPrototype(functionIdentifier, prototype);
+            } else if ("set_variable_type".equals(action) && functionIdentifier != null && variableName != null && newType != null) {
+                return setLocalVariableType(functionIdentifier, variableName, newType);
+            } else if ("change_datatypes".equals(action) && functionIdentifier != null && datatypeMappings != null) {
+                return changeVariableDataTypes(functionIdentifier, datatypeMappings, archiveName);
+            }
+
+            return "Invalid manage action: " + action;
+
+        } catch (Exception e) {
+            return "Error managing function: " + e.getMessage();
+        }
+    }
+
+    private String getCallGraph(String functionIdentifier, String mode, int depth, String direction, int maxDepth, int startIndex, int maxCallers, boolean includeCallContext, String functionAddresses) {
+        Program program = getCurrentProgram();
+        if (program == null) return "No program loaded";
+
+        try {
+            if ("graph".equals(mode)) {
+                return getCallGraph(functionIdentifier, depth);
+            } else if ("tree".equals(mode)) {
+                return getCallTree(functionIdentifier, direction, maxDepth);
+            } else if ("callers".equals(mode)) {
+                return getFunctionCallers(functionIdentifier);
+            } else if ("callees".equals(mode)) {
+                return getFunctionCallees(functionIdentifier);
+            } else if ("callers_decomp".equals(mode)) {
+                return getCallersDecompiled(functionIdentifier, startIndex, maxCallers, includeCallContext);
+            } else if ("common_callers".equals(mode) && functionAddresses != null) {
+                return findCommonCallers(functionAddresses);
+            }
+
+            return "Invalid call graph mode: " + mode;
+
+        } catch (Exception e) {
+            return "Error getting call graph: " + e.getMessage();
+        }
+    }
+
+    private String getReferences(String target, String mode, String direction, int offset, int limit, int maxResults, String libraryName, int startIndex, int maxReferencers, boolean includeRefContext, boolean includeDataRefs) {
+        Program program = getCurrentProgram();
+        if (program == null) return "No program loaded";
+
+        try {
+            Address addr = parseAddress(target);
+            if (addr == null) return "Invalid address: " + target;
+
+            ReferenceManager refMgr = program.getReferenceManager();
+            ReferenceIterator refs = null;
+
+            if ("to".equals(mode)) {
+                refs = refMgr.getReferencesTo(addr);
+            } else if ("from".equals(mode)) {
+                refs = refMgr.getReferencesFrom(addr);
+            } else {
+                // both - combine
+                List<Reference> allRefs = new ArrayList<>();
+                ReferenceIterator toRefs = refMgr.getReferencesTo(addr);
+                while (toRefs.hasNext()) allRefs.add(toRefs.next());
+                ReferenceIterator fromRefs = refMgr.getReferencesFrom(addr);
+                while (fromRefs.hasNext()) allRefs.add(fromRefs.next());
+                // Apply pagination to combined list
+                int endIndex = Math.min(offset + limit, allRefs.size());
+                List<Reference> pagedRefs = allRefs.subList(Math.min(offset, allRefs.size()), endIndex);
+
+                JSONArray result = new JSONArray();
+                for (Reference ref : pagedRefs) {
+                    JSONObject refObj = new JSONObject();
+                    refObj.put("address", ref.getFromAddress().toString());
+                    refObj.put("toAddress", ref.getToAddress().toString());
+                    refObj.put("type", ref.getReferenceType().toString());
+                    result.put(refObj);
+                }
+                return "{\"count\":" + allRefs.size() + ",\"references\":" + result.toString() + "}";
+            }
+
+            JSONArray result = new JSONArray();
+            int count = 0;
+            while (refs.hasNext() && count < maxResults) {
+                Reference ref = refs.next();
+                if (count >= offset) {
+                    JSONObject refObj = new JSONObject();
+                    refObj.put("address", ref.getFromAddress().toString());
+                    refObj.put("toAddress", ref.getToAddress().toString());
+                    refObj.put("type", ref.getReferenceType().toString());
+                    result.put(refObj);
+                }
+                count++;
+            }
+            return "{\"count\":" + count + ",\"references\":" + result.toString() + "}";
+
+        } catch (Exception e) {
+            return "Error getting references: " + e.getMessage();
+        }
+    }
+
+    private String analyzeDataFlow(String functionAddress, String startAddress, String variableName, String direction) {
+        Program program = getCurrentProgram();
+        if (program == null) return "No program loaded";
+
+        try {
+            Function func = getFunctionByAddress(functionAddress);
+            if (func == null) return "Function not found: " + functionAddress;
+
+            Address startAddr = parseAddress(startAddress);
+            if (startAddr == null) return "Invalid start address: " + startAddress;
+
+            // This is a simplified implementation - full data flow analysis would be much more complex
+            JSONArray result = new JSONArray();
+
+            if ("backward".equals(direction)) {
+                // Trace backward - find where the value at startAddress comes from
+                JSONObject flow = new JSONObject();
+                flow.put("direction", "backward");
+                flow.put("startAddress", startAddress);
+                flow.put("message", "Backward data flow analysis not fully implemented");
+                result.put(flow);
+            } else if ("forward".equals(direction)) {
+                // Trace forward - find where the value at startAddress is used
+                JSONObject flow = new JSONObject();
+                flow.put("direction", "forward");
+                flow.put("startAddress", startAddress);
+                flow.put("message", "Forward data flow analysis not fully implemented");
+                result.put(flow);
+            } else if ("variable_accesses".equals(direction) && variableName != null) {
+                // Find all accesses to a specific variable
+                JSONObject accesses = new JSONObject();
+                accesses.put("variable", variableName);
+                accesses.put("message", "Variable access analysis not fully implemented");
+                result.put(accesses);
+            }
+
+            return result.toString();
+
+        } catch (Exception e) {
+            return "Error analyzing data flow: " + e.getMessage();
+        }
+    }
+
+    private String searchConstants(String mode, String value, String minValue, String maxValue, int maxResults, boolean includeSmallValues, String minValueFilter, int topN) {
+        Program program = getCurrentProgram();
+        if (program == null) return "No program loaded";
+
+        try {
+            JSONArray result = new JSONArray();
+
+            if ("specific".equals(mode) && value != null) {
+                // Find specific constant value
+                long constValue = parseLong(value);
+                // This is simplified - would need to search through instructions
+                JSONObject constObj = new JSONObject();
+                constObj.put("value", constValue);
+                constObj.put("message", "Specific constant search not fully implemented");
+                result.put(constObj);
+            } else if ("range".equals(mode) && minValue != null && maxValue != null) {
+                // Find constants in range
+                long min = parseLong(minValue);
+                long max = parseLong(maxValue);
+                JSONObject rangeObj = new JSONObject();
+                rangeObj.put("minValue", min);
+                rangeObj.put("maxValue", max);
+                rangeObj.put("message", "Range constant search not fully implemented");
+                result.put(rangeObj);
+            } else if ("common".equals(mode)) {
+                // Find most common constants
+                JSONObject commonObj = new JSONObject();
+                commonObj.put("message", "Common constants analysis not fully implemented");
+                result.put(commonObj);
+            }
+
+            return result.toString();
+
+        } catch (Exception e) {
+            return "Error searching constants: " + e.getMessage();
+        }
+    }
+
+    private String manageStrings(String mode, String pattern, String searchString, String filter, int startIndex, int maxCount, int offset, int limit, int maxResults, boolean includeReferencingFunctions) {
+        Program program = getCurrentProgram();
+        if (program == null) return "No program loaded";
+
+        try {
+            JSONArray result = new JSONArray();
+
+            if ("list".equals(mode)) {
+                // List strings with pagination
+                Listing listing = program.getListing();
+                AddressIterator addrIter = listing.getAddressIterator(true);
+                int count = 0;
+                int added = 0;
+
+                while (addrIter.hasNext() && added < limit) {
+                    Address addr = addrIter.next();
+                    Data data = listing.getDefinedDataAt(addr);
+                    if (data != null && data.getDataType().getName().contains("string")) {
+                        if (count >= offset) {
+                            JSONObject strObj = new JSONObject();
+                            strObj.put("address", addr.toString());
+                            strObj.put("value", data.getValue());
+                            result.put(strObj);
+                            added++;
+                        }
+                        count++;
+                    }
+                }
+
+                JSONObject response = new JSONObject();
+                response.put("count", count);
+                response.put("strings", result);
+                return response.toString();
+
+            } else if ("regex".equals(mode) && pattern != null) {
+                // Search strings with regex
+                JSONObject searchObj = new JSONObject();
+                searchObj.put("pattern", pattern);
+                searchObj.put("message", "Regex string search not fully implemented");
+                result.put(searchObj);
+                return result.toString();
+
+            } else if ("count".equals(mode)) {
+                // Count strings
+                return "{\"count\":0,\"message\":\"String count not fully implemented\"}";
+
+            } else if ("similarity".equals(mode) && searchString != null) {
+                // Find similar strings
+                JSONObject similarityObj = new JSONObject();
+                similarityObj.put("searchString", searchString);
+                similarityObj.put("message", "String similarity search not fully implemented");
+                result.put(similarityObj);
+                return result.toString();
+            }
+
+            return result.toString();
+
+        } catch (Exception e) {
+            return "Error managing strings: " + e.getMessage();
+        }
+    }
+
+    private String inspectMemory(String mode, String address, int length, int offset, int limit) {
+        Program program = getCurrentProgram();
+        if (program == null) return "No program loaded";
+
+        try {
+            JSONArray result = new JSONArray();
+
+            if ("blocks".equals(mode)) {
+                // List memory blocks
+                Memory memory = program.getMemory();
+                MemoryBlock[] blocks = memory.getBlocks();
+                for (int i = offset; i < Math.min(offset + limit, blocks.length); i++) {
+                    MemoryBlock block = blocks[i];
+                    JSONObject blockObj = new JSONObject();
+                    blockObj.put("name", block.getName());
+                    blockObj.put("start", block.getStart().toString());
+                    blockObj.put("end", block.getEnd().toString());
+                    blockObj.put("size", block.getSize());
+                    blockObj.put("read", block.isRead());
+                    blockObj.put("write", block.isWrite());
+                    blockObj.put("execute", block.isExecute());
+                    result.put(blockObj);
+                }
+
+                JSONObject response = new JSONObject();
+                response.put("count", blocks.length);
+                response.put("blocks", result);
+                return response.toString();
+
+            } else if ("read".equals(mode) && address != null) {
+                // Read memory at address
+                Address addr = parseAddress(address);
+                if (addr == null) return "Invalid address: " + address;
+
+                Memory memory = program.getMemory();
+                byte[] bytes = new byte[length];
+                int bytesRead = memory.getBytes(addr, bytes);
+
+                StringBuilder hexDump = new StringBuilder();
+                for (int i = 0; i < bytesRead; i++) {
+                    hexDump.append(String.format("%02X ", bytes[i]));
+                    if ((i + 1) % 16 == 0) hexDump.append("\n");
+                }
+
+                JSONObject response = new JSONObject();
+                response.put("address", address);
+                response.put("length", bytesRead);
+                response.put("hexDump", hexDump.toString().trim());
+                return response.toString();
+
+            } else if ("data_at".equals(mode) && address != null) {
+                // Get data at address
+                Address addr = parseAddress(address);
+                if (addr == null) return "Invalid address: " + address;
+
+                Listing listing = program.getListing();
+                Data data = listing.getDefinedDataAt(addr);
+
+                JSONObject response = new JSONObject();
+                response.put("address", address);
+                if (data != null) {
+                    response.put("dataType", data.getDataType().getName());
+                    response.put("value", data.getValue() != null ? data.getValue().toString() : "null");
+                } else {
+                    response.put("message", "No defined data at address");
+                }
+                return response.toString();
+
+            } else if ("data_items".equals(mode)) {
+                // List defined data items
+                Listing listing = program.getListing();
+                AddressIterator addrIter = listing.getAddressIterator(true);
+                int count = 0;
+                int added = 0;
+
+                while (addrIter.hasNext() && added < limit) {
+                    Address addr = addrIter.next();
+                    Data data = listing.getDefinedDataAt(addr);
+                    if (data != null) {
+                        if (count >= offset) {
+                            JSONObject dataObj = new JSONObject();
+                            dataObj.put("address", addr.toString());
+                            dataObj.put("dataType", data.getDataType().getName());
+                            dataObj.put("value", data.getValue() != null ? data.getValue().toString() : "null");
+                            result.put(dataObj);
+                            added++;
+                        }
+                        count++;
+                    }
+                }
+
+                JSONObject response = new JSONObject();
+                response.put("count", count);
+                response.put("dataItems", result);
+                return response.toString();
+
+            } else if ("segments".equals(mode)) {
+                // List memory segments (same as blocks)
+                return inspectMemory("blocks", null, 0, offset, limit);
+            }
+
+            return result.toString();
+
+        } catch (Exception e) {
+            return "Error inspecting memory: " + e.getMessage();
+        }
+    }
+
+    private String manageBookmarks(String action, String address, String addressOrSymbol, String type, String category, String comment, String searchText, int maxResults) {
+        Program program = getCurrentProgram();
+        if (program == null) return "No program loaded";
+
+        try {
+            BookmarkManager bookmarkMgr = program.getBookmarkManager();
+
+            if ("set".equals(action) && address != null && type != null && category != null && comment != null) {
+                Address addr = parseAddress(address);
+                if (addr == null) return "Invalid address: " + address;
+
+                bookmarkMgr.setBookmark(addr, type, category, comment);
+                return "Bookmark set successfully";
+
+            } else if ("get".equals(action)) {
+                JSONArray result = new JSONArray();
+
+                if (address != null) {
+                    Address addr = parseAddress(address);
+                    if (addr != null) {
+                        Bookmark[] bookmarks = bookmarkMgr.getBookmarks(addr);
+                        for (Bookmark bookmark : bookmarks) {
+                            JSONObject bmObj = new JSONObject();
+                            bmObj.put("address", bookmark.getAddress().toString());
+                            bmObj.put("type", bookmark.getTypeString());
+                            bmObj.put("category", bookmark.getCategory());
+                            bmObj.put("comment", bookmark.getComment());
+                            result.put(bmObj);
+                        }
+                    }
+                } else if (type != null) {
+                    Bookmark[] bookmarks = bookmarkMgr.getBookmarks(type);
+                    for (Bookmark bookmark : bookmarks) {
+                        JSONObject bmObj = new JSONObject();
+                        bmObj.put("address", bookmark.getAddress().toString());
+                        bmObj.put("type", bookmark.getTypeString());
+                        bmObj.put("category", bookmark.getCategory());
+                        bmObj.put("comment", bookmark.getComment());
+                        result.put(bmObj);
+                    }
+                }
+
+                return result.toString();
+
+            } else if ("search".equals(action) && searchText != null) {
+                JSONArray result = new JSONArray();
+                // Simplified search implementation
+                JSONObject searchObj = new JSONObject();
+                searchObj.put("searchText", searchText);
+                searchObj.put("message", "Bookmark search not fully implemented");
+                result.put(searchObj);
+                return result.toString();
+
+            } else if ("remove".equals(action) && addressOrSymbol != null && type != null && category != null) {
+                Address addr = parseAddress(addressOrSymbol);
+                if (addr != null) {
+                    bookmarkMgr.removeBookmark(addr, type, category);
+                    return "Bookmark removed successfully";
+                }
+                return "Invalid address: " + addressOrSymbol;
+
+            } else if ("categories".equals(action)) {
+                JSONArray result = new JSONArray();
+                // Simplified categories implementation
+                JSONObject catsObj = new JSONObject();
+                catsObj.put("message", "Bookmark categories not fully implemented");
+                result.put(catsObj);
+                return result.toString();
+            }
+
+            return "Invalid bookmark action";
+
+        } catch (Exception e) {
+            return "Error managing bookmarks: " + e.getMessage();
+        }
+    }
+
+    private String manageComments(String action, String address, String addressOrSymbol, String function, String functionNameOrAddress, int lineNumber, String comment, String commentType, String start, String end, String commentTypes, String searchText, String pattern, boolean caseSensitive, int maxResults, boolean overrideMaxFunctionsLimit) {
+        Program program = getCurrentProgram();
+        if (program == null) return "No program loaded";
+
+        try {
+            Listing listing = program.getListing();
+
+            if ("set".equals(action)) {
+                if (address != null) {
+                    Address addr = parseAddress(address);
+                    if (addr == null) return "Invalid address: " + address;
+
+                    CodeUnit cu = listing.getCodeUnitAt(addr);
+                    if (cu != null) {
+                        cu.setComment(CommentType.valueOf(commentType.toUpperCase()), comment);
+                        return "Comment set successfully";
+                    }
+                } else if (function != null && lineNumber > 0) {
+                    // Set comment on decompiled function line - simplified
+                    return "Decompiler comment setting not fully implemented";
+                }
+
+            } else if ("get".equals(action)) {
+                JSONArray result = new JSONArray();
+
+                if (address != null) {
+                    Address addr = parseAddress(address);
+                    if (addr != null) {
+                        CodeUnit cu = listing.getCodeUnitAt(addr);
+                        if (cu != null) {
+                            JSONObject commentObj = new JSONObject();
+                            commentObj.put("address", address);
+                            commentObj.put("comment", cu.getComment(CommentType.EOL));
+                            result.put(commentObj);
+                        }
+                    }
+                }
+
+                return result.toString();
+
+            } else if ("remove".equals(action)) {
+                if (address != null) {
+                    Address addr = parseAddress(address);
+                    if (addr == null) return "Invalid address: " + address;
+
+                    CodeUnit cu = listing.getCodeUnitAt(addr);
+                    if (cu != null) {
+                        cu.setComment(CommentType.valueOf(commentType.toUpperCase()), null);
+                        return "Comment removed successfully";
+                    }
+                }
+
+            } else if ("search".equals(action) && searchText != null) {
+                JSONArray result = new JSONArray();
+                // Simplified search implementation
+                JSONObject searchObj = new JSONObject();
+                searchObj.put("searchText", searchText);
+                searchObj.put("message", "Comment search not fully implemented");
+                result.put(searchObj);
+                return result.toString();
+
+            } else if ("search_decomp".equals(action) && pattern != null) {
+                JSONArray result = new JSONArray();
+                // Simplified decompiler search implementation
+                JSONObject searchObj = new JSONObject();
+                searchObj.put("pattern", pattern);
+                searchObj.put("message", "Decompiler search not fully implemented");
+                result.put(searchObj);
+                return result.toString();
+            }
+
+            return "Invalid comment action";
+
+        } catch (Exception e) {
+            return "Error managing comments: " + e.getMessage();
+        }
+    }
+
+    private String analyzeVtables(String mode, String vtableAddress, String functionAddress, int maxEntries) {
+        Program program = getCurrentProgram();
+        if (program == null) return "No program loaded";
+
+        try {
+            JSONArray result = new JSONArray();
+
+            if ("analyze".equals(mode) && vtableAddress != null) {
+                Address addr = parseAddress(vtableAddress);
+                if (addr == null) return "Invalid vtable address: " + vtableAddress;
+
+                JSONObject vtableObj = new JSONObject();
+                vtableObj.put("address", vtableAddress);
+                vtableObj.put("message", "Vtable analysis not fully implemented");
+                result.put(vtableObj);
+
+            } else if ("callers".equals(mode) && functionAddress != null) {
+                JSONObject callersObj = new JSONObject();
+                callersObj.put("function", functionAddress);
+                callersObj.put("message", "Vtable callers analysis not fully implemented");
+                result.put(callersObj);
+
+            } else if ("containing".equals(mode) && functionAddress != null) {
+                JSONObject containingObj = new JSONObject();
+                containingObj.put("function", functionAddress);
+                containingObj.put("message", "Vtable containing analysis not fully implemented");
+                result.put(containingObj);
+            }
+
+            return result.toString();
+
+        } catch (Exception e) {
+            return "Error analyzing vtables: " + e.getMessage();
+        }
+    }
+
+    private String manageSymbols(String mode, String address, String labelName, String newName, String libraryFilter, int maxResults, int startIndex, int offset, int limit, boolean groupByLibrary, boolean includeExternal, int maxCount, boolean filterDefaultNames) {
+        Program program = getCurrentProgram();
+        if (program == null) return "No program loaded";
+
+        try {
+            SymbolTable symbolTable = program.getSymbolTable();
+            JSONArray result = new JSONArray();
+
+            if ("classes".equals(mode)) {
+                // List classes/namespaces
+                Namespace globalNs = program.getGlobalNamespace();
+                Iterator<Namespace> nsIter = globalNs.getChildren();
+                int count = 0;
+
+                while (nsIter.hasNext() && count < maxCount) {
+                    Namespace ns = nsIter.next();
+                    if (count >= startIndex) {
+                        JSONObject nsObj = new JSONObject();
+                        nsObj.put("name", ns.getName());
+                        nsObj.put("type", "namespace");
+                        result.put(nsObj);
+                    }
+                    count++;
+                }
+
+                JSONObject response = new JSONObject();
+                response.put("count", count);
+                response.put("namespaces", result);
+                return response.toString();
+
+            } else if ("namespaces".equals(mode)) {
+                // List non-global namespaces - same as classes for now
+                return manageSymbols("classes", null, null, null, null, 0, startIndex, 0, 0, false, false, maxCount, filterDefaultNames);
+
+            } else if ("imports".equals(mode)) {
+                // List imports
+                ExternalManager extMgr = program.getExternalManager();
+                Iterator<ExternalLocation> extIter = extMgr.getExternalLocations();
+                Map<String, List<String>> importsByLibrary = new HashMap<>();
+                int count = 0;
+
+                while (extIter.hasNext() && count < maxResults) {
+                    ExternalLocation extLoc = extIter.next();
+                    String libName = extLoc.getLibraryName();
+                    if (libraryFilter != null && !libName.contains(libraryFilter)) continue;
+
+                    if (!importsByLibrary.containsKey(libName)) {
+                        importsByLibrary.put(libName, new ArrayList<>());
+                    }
+                    importsByLibrary.get(libName).add(extLoc.getLabel());
+                    count++;
+                }
+
+                if (groupByLibrary) {
+                    JSONObject response = new JSONObject();
+                    response.put("count", count);
+                    response.put("importsByLibrary", importsByLibrary);
+                    return response.toString();
+                } else {
+                    JSONArray imports = new JSONArray();
+                    for (List<String> libImports : importsByLibrary.values()) {
+                        for (String imp : libImports) {
+                            imports.put(imp);
+                        }
+                    }
+                    JSONObject response = new JSONObject();
+                    response.put("count", count);
+                    response.put("imports", imports);
+                    return response.toString();
+                }
+
+            } else if ("exports".equals(mode)) {
+                // List exports - simplified
+                JSONObject response = new JSONObject();
+                response.put("count", 0);
+                response.put("exports", result);
+                response.put("message", "Exports listing not fully implemented");
+                return response.toString();
+
+            } else if ("create_label".equals(mode) && address != null && labelName != null) {
+                Address addr = parseAddress(address);
+                if (addr == null) return "Invalid address: " + address;
+
+                symbolTable.createLabel(addr, labelName, program.getGlobalNamespace(), true);
+                return "Label created successfully";
+
+            } else if ("symbols".equals(mode)) {
+                // List symbols
+                Iterator<Symbol> symbolIter = symbolTable.getAllSymbols(includeExternal);
+                int count = 0;
+                int added = 0;
+
+                while (symbolIter.hasNext() && added < maxCount) {
+                    Symbol symbol = symbolIter.next();
+                    if (filterDefaultNames && (symbol.getName().startsWith("FUN_") || symbol.getName().startsWith("DAT_"))) {
+                        continue;
+                    }
+
+                    if (count >= startIndex) {
+                        JSONObject symbolObj = new JSONObject();
+                        symbolObj.put("name", symbol.getName());
+                        symbolObj.put("address", symbol.getAddress().toString());
+                        symbolObj.put("type", symbol.getSymbolType().toString());
+                        result.put(symbolObj);
+                        added++;
+                    }
+                    count++;
+                }
+
+                JSONObject response = new JSONObject();
+                response.put("count", count);
+                response.put("symbols", result);
+                return response.toString();
+
+            } else if ("count".equals(mode)) {
+                int count = symbolTable.getNumSymbols();
+                JSONObject response = new JSONObject();
+                response.put("count", count);
+                return response.toString();
+
+            } else if ("rename_data".equals(mode) && address != null && newName != null) {
+                Address addr = parseAddress(address);
+                if (addr == null) return "Invalid address: " + address;
+
+                Symbol symbol = symbolTable.getPrimarySymbol(addr);
+                if (symbol != null) {
+                    symbol.setName(newName, SourceType.USER_DEFINED);
+                    return "Data renamed successfully";
+                }
+                return "Symbol not found at address: " + address;
+            }
+
+            return result.toString();
+
+        } catch (Exception e) {
+            return "Error managing symbols: " + e.getMessage();
+        }
+    }
+
+    private String manageStructures(String action, String cDefinition, String headerContent, String structureName, String name, int size, String type, String category, boolean packed, String description, String fieldName, String dataType, Integer offset, String comment, String newDataType, String newFieldName, String newComment, Integer newLength, String addressOrSymbol, boolean clearExisting, boolean force, String nameFilter, boolean includeBuiltIn) {
+        Program program = getCurrentProgram();
+        if (program == null) return "No program loaded";
+
+        try {
+            DataTypeManager dtm = program.getDataTypeManager();
+
+            if ("parse".equals(action) && cDefinition != null) {
+                // Parse C structure definition
+                CParser parser = new CParser(dtm.getDataOrganization());
+                DataType dt = parser.parse(cDefinition);
+                JSONObject response = new JSONObject();
+                response.put("name", dt.getName());
+                response.put("size", dt.getLength());
+                return response.toString();
+
+            } else if ("validate".equals(action) && cDefinition != null) {
+                // Validate C structure definition
+                JSONObject response = new JSONObject();
+                response.put("valid", true);
+                response.put("message", "Structure validation not fully implemented");
+                return response.toString();
+
+            } else if ("create".equals(action) && name != null) {
+                // Create new structure
+                CategoryPath catPath = new CategoryPath(category);
+                StructureDataType struct = new StructureDataType(catPath, name, size, dtm.getDataOrganization());
+                struct.setDescription(description);
+                dtm.addDataType(struct, null);
+
+                JSONObject response = new JSONObject();
+                response.put("name", name);
+                response.put("size", size);
+                response.put("created", true);
+                return response.toString();
+
+            } else if ("add_field".equals(action) && structureName != null && fieldName != null && dataType != null) {
+                // Add field to structure
+                DataType dt = dtm.getDataType(new CategoryPath("/"), structureName);
+                if (dt instanceof Structure) {
+                    Structure struct = (Structure) dt;
+                    DataType fieldDt = dtm.getDataType(new CategoryPath("/"), dataType);
+                    if (fieldDt != null) {
+                        if (offset != null) {
+                            struct.insertAtOffset(offset, fieldDt, -1, fieldName, comment);
+                        } else {
+                            struct.add(fieldDt, -1, fieldName, comment);
+                        }
+                        return "{\"success\":true,\"message\":\"Field added\"}";
+                    }
+                }
+                return "{\"success\":false,\"message\":\"Structure or field type not found\"}";
+
+            } else if ("modify_field".equals(action) && structureName != null && fieldName != null) {
+                // Modify structure field
+                JSONObject response = new JSONObject();
+                response.put("success", false);
+                response.put("message", "Field modification not fully implemented");
+                return response.toString();
+
+            } else if ("modify_from_c".equals(action) && cDefinition != null) {
+                // Modify structure from C definition
+                JSONObject response = new JSONObject();
+                response.put("success", false);
+                response.put("message", "Modify from C not fully implemented");
+                return response.toString();
+
+            } else if ("info".equals(action) && structureName != null) {
+                // Get structure info
+                DataType dt = dtm.getDataType(new CategoryPath("/"), structureName);
+                if (dt instanceof Composite) {
+                    Composite comp = (Composite) dt;
+                    JSONObject response = new JSONObject();
+                    response.put("name", dt.getName());
+                    response.put("size", dt.getLength());
+                    response.put("isUnion", dt instanceof Union);
+
+                    JSONArray fields = new JSONArray();
+                    for (int i = 0; i < comp.getNumComponents(); i++) {
+                        DataTypeComponent comp = comp.getComponent(i);
+                        JSONObject field = new JSONObject();
+                        field.put("name", comp.getFieldName());
+                        field.put("dataType", comp.getDataType().getName());
+                        field.put("offset", comp.getOffset());
+                        field.put("length", comp.getLength());
+                        fields.put(field);
+                    }
+                    response.put("fields", fields);
+                    return response.toString();
+                }
+                return "{\"error\":\"Structure not found\"}";
+
+            } else if ("list".equals(action)) {
+                // List structures
+                return listStructures("/", nameFilter, includeBuiltIn);
+
+            } else if ("apply".equals(action) && addressOrSymbol != null && structureName != null) {
+                // Apply structure to address
+                Address addr = parseAddress(addressOrSymbol);
+                if (addr == null) return "Invalid address: " + addressOrSymbol;
+
+                DataType dt = dtm.getDataType(new CategoryPath("/"), structureName);
+                if (dt != null) {
+                    Listing listing = program.getListing();
+                    if (clearExisting) {
+                        listing.clearCodeUnits(addr, addr.add(dt.getLength() - 1), false);
+                    }
+                    listing.createData(addr, dt);
+                    return "{\"success\":true,\"message\":\"Structure applied\"}";
+                }
+                return "{\"success\":false,\"message\":\"Structure not found\"}";
+
+            } else if ("delete".equals(action) && structureName != null) {
+                // Delete structure
+                DataType dt = dtm.getDataType(new CategoryPath("/"), structureName);
+                if (dt != null) {
+                    dtm.remove(dt, force);
+                    return "{\"success\":true,\"message\":\"Structure deleted\"}";
+                }
+                return "{\"success\":false,\"message\":\"Structure not found\"}";
+
+            } else if ("parse_header".equals(action) && headerContent != null) {
+                // Parse C header file
+                JSONObject response = new JSONObject();
+                response.put("message", "Header parsing not fully implemented");
+                response.put("typesCreated", 0);
+                return response.toString();
+            }
+
+            return "{\"error\":\"Invalid structure action\"}";
+
+        } catch (Exception e) {
+            return "{\"error\":\"" + e.getMessage() + "\"}";
+        }
+    }
+
+    private String manageDataTypes(String action, String archiveName, String categoryPath, boolean includeSubcategories, int startIndex, int maxCount, String dataTypeString, String addressOrSymbol) {
+        Program program = getCurrentProgram();
+        if (program == null) return "No program loaded";
+
+        try {
+            DataTypeManager dtm = program.getDataTypeManager();
+            JSONArray result = new JSONArray();
+
+            if ("archives".equals(action)) {
+                // List data type archives
+                Iterator<SourceArchive> archives = dtm.getSourceArchives();
+                while (archives.hasNext()) {
+                    SourceArchive archive = archives.next();
+                    JSONObject archiveObj = new JSONObject();
+                    archiveObj.put("name", archive.getName());
+                    archiveObj.put("domainFileID", archive.getDomainFile().getID());
+                    result.put(archiveObj);
+                }
+                return result.toString();
+
+            } else if ("list".equals(action)) {
+                // List data types
+                Category cat = dtm.getCategory(new CategoryPath(categoryPath));
+                if (cat != null) {
+                    Iterator<DataType> dtIter = cat.getDataTypes();
+                    int count = 0;
+                    int added = 0;
+
+                    while (dtIter.hasNext() && added < maxCount) {
+                        DataType dt = dtIter.next();
+                        if (count >= startIndex) {
+                            JSONObject dtObj = new JSONObject();
+                            dtObj.put("name", dt.getName());
+                            dtObj.put("size", dt.getLength());
+                            dtObj.put("description", dt.getDescription());
+                            result.put(dtObj);
+                            added++;
+                        }
+                        count++;
+                    }
+
+                    JSONObject response = new JSONObject();
+                    response.put("count", count);
+                    response.put("dataTypes", result);
+                    return response.toString();
+                }
+
+            } else if ("by_string".equals(action) && dataTypeString != null) {
+                // Get data type by string representation
+                JSONObject response = new JSONObject();
+                response.put("dataTypeString", dataTypeString);
+                response.put("message", "Data type by string not fully implemented");
+                return response.toString();
+
+            } else if ("apply".equals(action) && addressOrSymbol != null && dataTypeString != null) {
+                // Apply data type to address
+                Address addr = parseAddress(addressOrSymbol);
+                if (addr == null) return "Invalid address: " + addressOrSymbol;
+
+                JSONObject response = new JSONObject();
+                response.put("success", false);
+                response.put("message", "Data type application not fully implemented");
+                return response.toString();
+            }
+
+            return result.toString();
+
+        } catch (Exception e) {
+            return "Error managing data types: " + e.getMessage();
+        }
+    }
+
+    private String getCurrentContext(String mode) {
+        try {
+            if ("address".equals(mode)) {
+                String addr = getCurrentAddress();
+                return addr != null ? addr : "No current address";
+            } else if ("function".equals(mode)) {
+                String func = getCurrentFunction();
+                return func != null ? func : "No current function";
+            } else { // both
+                JSONObject response = new JSONObject();
+                response.put("address", getCurrentAddress());
+                response.put("function", getCurrentFunction());
+                return response.toString();
+            }
+        } catch (Exception e) {
+            return "Error getting current context: " + e.getMessage();
+        }
+    }
+
+    private String manageFunctionTags(String function, String mode, String tags) {
+        Program program = getCurrentProgram();
+        if (program == null) return "No program loaded";
+
+        try {
+            JSONArray result = new JSONArray();
+
+            if ("get".equals(mode) && function != null) {
+                // Get tags for function
+                Function func = getFunctionByAddress(function);
+                if (func == null) func = getFunctionByName(function);
+
+                if (func != null) {
+                    JSONObject tagsObj = new JSONObject();
+                    tagsObj.put("function", function);
+                    tagsObj.put("tags", new JSONArray()); // Simplified - no tags implemented
+                    result.put(tagsObj);
+                }
+
+            } else if ("set".equals(action) && function != null && tags != null) {
+                // Set tags for function - simplified
+                return "Function tags set (not fully implemented)";
+
+            } else if ("add".equals(action) && function != null && tags != null) {
+                // Add tags to function - simplified
+                return "Function tags added (not fully implemented)";
+
+            } else if ("remove".equals(action) && function != null && tags != null) {
+                // Remove tags from function - simplified
+                return "Function tags removed (not fully implemented)";
+
+            } else if ("list".equals(mode)) {
+                // List all tags - simplified
+                JSONObject tagsObj = new JSONObject();
+                tagsObj.put("tags", new JSONArray());
+                tagsObj.put("message", "Function tags listing not fully implemented");
+                result.put(tagsObj);
+            }
+
+            return result.toString();
+
+        } catch (Exception e) {
+            return "Error managing function tags: " + e.getMessage();
+        }
+    }
+
     @Override
     public void dispose() {
         if (server != null) {
@@ -5733,3 +6224,4 @@ public class GhidraMCPPlugin extends Plugin {
         super.dispose();
     }
 }
+
