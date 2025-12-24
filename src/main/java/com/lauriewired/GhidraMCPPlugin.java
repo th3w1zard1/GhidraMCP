@@ -1951,7 +1951,7 @@ public class GhidraMCPPlugin extends Plugin {
                 results.add(formatBookmark(iter.next()));
             }
         } else {
-            Iterator<ghidra.program.listing.Bookmark> iter = bookmarkMgr.getBookmarksIterator();
+            Iterator<ghidra.program.model.listing.Bookmark> iter = bookmarkMgr.getBookmarksIterator();
             while (iter.hasNext()) {
                 results.add(formatBookmark(iter.next()));
             }
@@ -4580,12 +4580,7 @@ public class GhidraMCPPlugin extends Plugin {
         try {
             Function function = null;
             if (functionAddress != null && !functionAddress.isEmpty()) {
-                try {
-                    Address addr = program.getAddressFactory().getAddress(functionAddress);
-                    function = program.getFunctionManager().getFunctionAt(addr);
-                } catch (Exception e) {
-                    function = program.getFunctionManager().getFunction(functionAddress);
-                }
+                function = getFunction(functionAddress);
             }
 
             if (function == null) {
