@@ -1,0 +1,779 @@
+        server.createContext("/segments", exchange -> {
+            Map<String, String> qparams = parseQueryParams(exchange);
+            int offset = parseIntOrDefault(qparams.get("offset"), 0);
+            int limit  = parseIntOrDefault(qparams.get("limit"),  100);
+            sendResponse(exchange, listSegments(offset, limit));
+        });
+
+        server.createContext("/imports", exchange -> {
+            Map<String, String> qparams = parseQueryParams(exchange);
+            int offset = parseIntOrDefault(qparams.get("offset"), 0);
+            int limit  = parseIntOrDefault(qparams.get("limit"),  100);
+            sendResponse(exchange, listImports(offset, limit));
+        });
+
+        server.createContext("/exports", exchange -> {
+            Map<String, String> qparams = parseQueryParams(exchange);
+            int offset = parseIntOrDefault(qparams.get("offset"), 0);
+            int limit  = parseIntOrDefault(qparams.get("limit"),  100);
+            sendResponse(exchange, listExports(offset, limit));
+        });
+
+        server.createContext("/namespaces", exchange -> {
+            Map<String, String> qparams = parseQueryParams(exchange);
+            int offset = parseIntOrDefault(qparams.get("offset"), 0);
+            int limit  = parseIntOrDefault(qparams.get("limit"),  100);
+            sendResponse(exchange, listNamespaces(offset, limit));
+        });
+
+        server.createContext("/data", exchange -> {
+            Map<String, String> qparams = parseQueryParams(exchange);
+            int offset = parseIntOrDefault(qparams.get("offset"), 0);
+            int limit  = parseIntOrDefault(qparams.get("limit"),  100);
+            sendResponse(exchange, listDefinedData(offset, limit));
+        });
+
+        server.createContext("/searchFunctions", exchange -> {
+            Map<String, String> qparams = parseQueryParams(exchange);
+            String searchTerm = qparams.get("query");
+            int offset = parseIntOrDefault(qparams.get("offset"), 0);
+            int limit = parseIntOrDefault(qparams.get("limit"), 100);
+            sendResponse(exchange, searchFunctionsByName(searchTerm, offset, limit));
+        });
+
+        // New API endpoints based on requirements
+
+        server.createContext("/get_function_by_address", exchange -> {
+            Map<String, String> qparams = parseQueryParams(exchange);
+            String address = qparams.get("address");
+            sendResponse(exchange, getFunctionByAddress(address));
+        });
+
+        server.createContext("/get_current_address", exchange -> {
+            sendResponse(exchange, getCurrentAddress());
+        });
+
+        server.createContext("/get_current_function", exchange -> {
+            sendResponse(exchange, getCurrentFunction());
+        });
+
+        server.createContext("/list_functions", exchange -> {
+            sendResponse(exchange, listFunctions());
+        });
+
+        server.createContext("/decompile_function", exchange -> {
+            Map<String, String> qparams = parseQueryParams(exchange);
+            String address = qparams.get("address");
+            sendResponse(exchange, decompileFunctionByAddress(address));
+        });
+
+        server.createContext("/disassemble_function", exchange -> {
+            Map<String, String> qparams = parseQueryParams(exchange);
+            String address = qparams.get("address");
+            sendResponse(exchange, disassembleFunction(address));
+        });
+
+        server.createContext("/set_decompiler_comment", exchange -> {
+            Map<String, String> params = parsePostParams(exchange);
+            String address = params.get("address");
+            String comment = params.get("comment");
+            boolean success = setDecompilerComment(address, comment);
+            sendResponse(exchange, success ? "Comment set successfully" : "Failed to set comment");
+        });
+
+        server.createContext("/set_disassembly_comment", exchange -> {
+            Map<String, String> params = parsePostParams(exchange);
+            String address = params.get("address");
+            String comment = params.get("comment");
+            boolean success = setDisassemblyComment(address, comment);
+            sendResponse(exchange, success ? "Comment set successfully" : "Failed to set comment");
+        });
+
+        server.createContext("/rename_function_by_address", exchange -> {
+            Map<String, String> params = parsePostParams(exchange);
+            String functionAddress = params.get("function_address");
+            String newName = params.get("new_name");
+            boolean success = renameFunctionByAddress(functionAddress, newName);
+            sendResponse(exchange, success ? "Function renamed successfully" : "Failed to rename function");
+        });
+
+        server.createContext("/set_function_prototype", exchange -> {
+            Map<String, String> params = parsePostParams(exchange);
+            String functionAddress = params.get("function_address");
+            String prototype = params.get("prototype");
+
+            // Call the set prototype function and get detailed result
+            PrototypeResult result = setFunctionPrototype(functionAddress, prototype);
+
+            if (result.isSuccess()) {
+                // Even with successful operations, include any warning messages for debugging
+                String successMsg = "Function prototype set successfully";
+                if (!result.getErrorMessage().isEmpty()) {
+                    successMsg += "\n\nWarnings/Debug Info:\n" + result.getErrorMessage();
+                }
+                sendResponse(exchange, successMsg);
+            } else {
+                // Return the detailed error message to the client
+                sendResponse(exchange, "Failed to set function prototype: " + result.getErrorMessage());
+            }
+        });
+
+        server.createContext("/set_local_variable_type", exchange -> {
+            Map<String, String> params = parsePostParams(exchange);
+            String functionAddress = params.get("function_address");
+            String variableName = params.get("variable_name");
+            String newType = params.get("new_type");
+
+            // Capture detailed information about setting the type
+            StringBuilder responseMsg = new StringBuilder();
+            responseMsg.append("Setting variable type: ").append(variableName)
+                      .append(" to ").append(newType)
+                      .append(" in function at ").append(functionAddress).append("\n\n");
+
+            // Attempt to find the data type in various categories
+            Program program = getCurrentProgram();
+            if (program != null) {
+                DataTypeManager dtm = program.getDataTypeManager();
+                DataType directType = findDataTypeByNameInAllCategories(dtm, newType);
+                if (directType != null) {
+                    responseMsg.append("Found type: ").append(directType.getPathName()).append("\n");
+                } else if (newType.startsWith("P") && newType.length() > 1) {
+                    String baseTypeName = newType.substring(1);
+                    DataType baseType = findDataTypeByNameInAllCategories(dtm, baseTypeName);
+                    if (baseType != null) {
+                        responseMsg.append("Found base type for pointer: ").append(baseType.getPathName()).append("\n");
+                    } else {
+                        responseMsg.append("Base type not found for pointer: ").append(baseTypeName).append("\n");
+                    }
+                } else {
+                    responseMsg.append("Type not found directly: ").append(newType).append("\n");
+                }
+            }
+
+            // Try to set the type
+            boolean success = setLocalVariableType(functionAddress, variableName, newType);
+
+            String successMsg = success ? "Variable type set successfully" : "Failed to set variable type";
+            responseMsg.append("\nResult: ").append(successMsg);
+
+            sendResponse(exchange, responseMsg.toString());
+        });
+
+        server.createContext("/xrefs_to", exchange -> {
+            Map<String, String> qparams = parseQueryParams(exchange);
+            String address = qparams.get("address");
+            int offset = parseIntOrDefault(qparams.get("offset"), 0);
+            int limit = parseIntOrDefault(qparams.get("limit"), 100);
+            sendResponse(exchange, getXrefsTo(address, offset, limit));
+        });
+
+        server.createContext("/xrefs_from", exchange -> {
+            Map<String, String> qparams = parseQueryParams(exchange);
+            String address = qparams.get("address");
+            int offset = parseIntOrDefault(qparams.get("offset"), 0);
+            int limit = parseIntOrDefault(qparams.get("limit"), 100);
+            sendResponse(exchange, getXrefsFrom(address, offset, limit));
+        });
+
+        server.createContext("/function_xrefs", exchange -> {
+            Map<String, String> qparams = parseQueryParams(exchange);
+            String name = qparams.get("name");
+            int offset = parseIntOrDefault(qparams.get("offset"), 0);
+            int limit = parseIntOrDefault(qparams.get("limit"), 100);
+            sendResponse(exchange, getFunctionXrefs(name, offset, limit));
+        });
+
+        server.createContext("/strings", exchange -> {
+            Map<String, String> qparams = parseQueryParams(exchange);
+            int offset = parseIntOrDefault(qparams.get("offset"), 0);
+            int limit = parseIntOrDefault(qparams.get("limit"), 100);
+            String filter = qparams.get("filter");
+            sendResponse(exchange, listDefinedStrings(offset, limit, filter));
+        });
+
+        // Bookmarks endpoints
+        server.createContext("/set_bookmark", exchange -> {
+            Map<String, String> params = parsePostParams(exchange);
+            String address = params.get("address");
+            String type = params.get("type");
+            String category = params.get("category");
+            String comment = params.get("comment");
+            boolean success = setBookmark(address, type, category, comment);
+            sendResponse(exchange, success ? "Bookmark set successfully" : "Failed to set bookmark");
+        });
+
+        server.createContext("/get_bookmarks", exchange -> {
+            Map<String, String> qparams = parseQueryParams(exchange);
+            String address = qparams.get("address");
+            String type = qparams.get("type");
+            sendResponse(exchange, getBookmarks(address, type));
+        });
+
+        server.createContext("/search_bookmarks", exchange -> {
+            Map<String, String> qparams = parseQueryParams(exchange);
+            String searchText = qparams.get("searchText");
+            int maxResults = parseIntOrDefault(qparams.get("maxResults"), 100);
+            sendResponse(exchange, searchBookmarks(searchText, maxResults));
+        });
+
+        // Call graph endpoints
+        server.createContext("/get_call_graph", exchange -> {
+            Map<String, String> qparams = parseQueryParams(exchange);
+            String functionAddress = qparams.get("functionAddress");
+            int depth = parseIntOrDefault(qparams.get("depth"), 1);
+            sendResponse(exchange, getCallGraph(functionAddress, depth));
+        });
+
+        server.createContext("/get_callers", exchange -> {
+            Map<String, String> qparams = parseQueryParams(exchange);
+            String functionAddress = qparams.get("functionAddress");
+            sendResponse(exchange, getFunctionCallers(functionAddress));
+        });
+
+        server.createContext("/get_callees", exchange -> {
+            Map<String, String> qparams = parseQueryParams(exchange);
+            String functionAddress = qparams.get("functionAddress");
+            sendResponse(exchange, getFunctionCallees(functionAddress));
+        });
+
+        // Constants search endpoints
+        server.createContext("/find_constant", exchange -> {
+            Map<String, String> qparams = parseQueryParams(exchange);
+            String value = qparams.get("value");
+            int maxResults = parseIntOrDefault(qparams.get("maxResults"), 500);
+            sendResponse(exchange, findConstantUses(value, maxResults));
+        });
+
+        server.createContext("/find_constants_in_range", exchange -> {
+            Map<String, String> qparams = parseQueryParams(exchange);
+            String minValue = qparams.get("minValue");
+            String maxValue = qparams.get("maxValue");
+            int maxResults = parseIntOrDefault(qparams.get("maxResults"), 500);
+            sendResponse(exchange, findConstantsInRange(minValue, maxValue, maxResults));
+        });
+
+        // Memory blocks endpoint
+        server.createContext("/memory_blocks", exchange -> {
+            sendResponse(exchange, getMemoryBlocks());
+        });
+
+        server.createContext("/read_memory", exchange -> {
+            Map<String, String> qparams = parseQueryParams(exchange);
+            String address = qparams.get("address");
+            int length = parseIntOrDefault(qparams.get("length"), 16);
+            sendResponse(exchange, readMemory(address, length));
+        });
+
+        // Enhanced function endpoints
+        server.createContext("/get_function_info", exchange -> {
+            Map<String, String> qparams = parseQueryParams(exchange);
+            String address = qparams.get("address");
+            sendResponse(exchange, getFunctionInfo(address));
+        });
+
+        server.createContext("/list_function_calls", exchange -> {
+            Map<String, String> qparams = parseQueryParams(exchange);
+            String functionAddress = qparams.get("functionAddress");
+            sendResponse(exchange, listFunctionCalls(functionAddress));
+        });
+
+        // Data flow analysis endpoints
+        server.createContext("/trace_data_flow_backward", exchange -> {
+            Map<String, String> qparams = parseQueryParams(exchange);
+            String address = qparams.get("address");
+            sendResponse(exchange, traceDataFlowBackward(address));
+        });
+
+        server.createContext("/trace_data_flow_forward", exchange -> {
+            Map<String, String> qparams = parseQueryParams(exchange);
+            String address = qparams.get("address");
+            sendResponse(exchange, traceDataFlowForward(address));
+        });
+
+        // Vtable analysis endpoints
+        server.createContext("/analyze_vtable", exchange -> {
+            Map<String, String> qparams = parseQueryParams(exchange);
+            String vtableAddress = qparams.get("vtableAddress");
+            int maxEntries = parseIntOrDefault(qparams.get("maxEntries"), 200);
+            sendResponse(exchange, analyzeVtable(vtableAddress, maxEntries));
+        });
+
+        server.createContext("/find_vtable_callers", exchange -> {
+            Map<String, String> qparams = parseQueryParams(exchange);
+            String functionAddress = qparams.get("functionAddress");
+            sendResponse(exchange, findVtableCallers(functionAddress));
+        });
+
+        // Enhanced string tools
+        server.createContext("/search_strings_regex", exchange -> {
+            Map<String, String> qparams = parseQueryParams(exchange);
+            String pattern = qparams.get("pattern");
+            int maxResults = parseIntOrDefault(qparams.get("maxResults"), 100);
+            sendResponse(exchange, searchStringsRegex(pattern, maxResults));
+        });
+
+        server.createContext("/get_strings_count", exchange -> {
+            sendResponse(exchange, getStringsCount());
+        });
+
+        // Enhanced cross-reference tools
+        server.createContext("/find_cross_references", exchange -> {
+            Map<String, String> qparams = parseQueryParams(exchange);
+            String location = qparams.get("location");
+            String direction = qparams.get("direction");
+            int limit = parseIntOrDefault(qparams.get("limit"), 100);
+            sendResponse(exchange, findCrossReferences(location, direction, limit));
+        });
+
+        // Data type and label tools
+        server.createContext("/create_label", exchange -> {
+            Map<String, String> params = parsePostParams(exchange);
+            String address = params.get("address");
+            String labelName = params.get("labelName");
+            boolean success = createLabel(address, labelName);
+            sendResponse(exchange, success ? "Label created successfully" : "Failed to create label");
+        });
+
+        server.createContext("/get_data_at_address", exchange -> {
+            Map<String, String> qparams = parseQueryParams(exchange);
+            String address = qparams.get("address");
+            sendResponse(exchange, getDataAtAddress(address));
+        });
+
+        // Additional missing tools from reverse-engineering-assistant
+
+        // Functions tools
+        server.createContext("/functions/get_count", exchange -> {
+            Map<String, String> qparams = parseQueryParams(exchange);
+            boolean filterDefaultNames = Boolean.parseBoolean(qparams.getOrDefault("filterDefaultNames", "true"));
+            sendResponse(exchange, getFunctionCount(filterDefaultNames));
+        });
+
+        server.createContext("/functions/get_by_similarity", exchange -> {
+            Map<String, String> qparams = parseQueryParams(exchange);
+            String searchString = qparams.get("searchString");
+            int startIndex = parseIntOrDefault(qparams.get("startIndex"), 0);
+            int maxCount = parseIntOrDefault(qparams.get("maxCount"), 100);
+            boolean filterDefaultNames = Boolean.parseBoolean(qparams.getOrDefault("filterDefaultNames", "true"));
+            sendResponse(exchange, getFunctionsBySimilarity(searchString, startIndex, maxCount, filterDefaultNames));
+        });
+
+        server.createContext("/functions/get_undefined_candidates", exchange -> {
+            Map<String, String> qparams = parseQueryParams(exchange);
+            int startIndex = parseIntOrDefault(qparams.get("startIndex"), 0);
+            int maxCandidates = parseIntOrDefault(qparams.get("maxCandidates"), 100);
+            int minReferenceCount = parseIntOrDefault(qparams.get("minReferenceCount"), 1);
+            sendResponse(exchange, getUndefinedFunctionCandidates(startIndex, maxCandidates, minReferenceCount));
+        });
+
+        server.createContext("/functions/create", exchange -> {
+            Map<String, String> params = parsePostParams(exchange);
+            String address = params.get("address");
+            String name = params.get("name");
+            sendResponse(exchange, createFunction(address, name));
+        });
+
+        server.createContext("/functions/tags", exchange -> {
+            Map<String, String> params = parsePostParams(exchange);
+            String function = params.get("function");
+            String mode = params.get("mode");
+            String tagsStr = params.get("tags");
+            sendResponse(exchange, manageFunctionTags(function, mode, tagsStr));
+        });
+
+        // Strings tools
+        server.createContext("/strings/get_by_similarity", exchange -> {
+            Map<String, String> qparams = parseQueryParams(exchange);
+            String searchString = qparams.get("searchString");
+            int startIndex = parseIntOrDefault(qparams.get("startIndex"), 0);
+            int maxCount = parseIntOrDefault(qparams.get("maxCount"), 100);
+            boolean includeReferencingFunctions = Boolean.parseBoolean(qparams.getOrDefault("includeReferencingFunctions", "false"));
+            sendResponse(exchange, getStringsBySimilarity(searchString, startIndex, maxCount, includeReferencingFunctions));
+        });
+
+        // Comments tools
+        server.createContext("/comments/set", exchange -> {
+            Map<String, String> params = parsePostParams(exchange);
+            String addressOrSymbol = params.get("addressOrSymbol");
+            String commentType = params.getOrDefault("commentType", "eol");
+            String comment = params.get("comment");
+            sendResponse(exchange, setComment(addressOrSymbol, commentType, comment));
+        });
+
+        server.createContext("/comments/get", exchange -> {
+            Map<String, String> qparams = parseQueryParams(exchange);
+            String addressOrSymbol = qparams.get("addressOrSymbol");
+            String startAddr = qparams.get("start");
+            String endAddr = qparams.get("end");
+            String commentTypesStr = qparams.get("commentTypes");
+            sendResponse(exchange, getComments(addressOrSymbol, startAddr, endAddr, commentTypesStr));
+        });
+
+        server.createContext("/comments/remove", exchange -> {
+            Map<String, String> params = parsePostParams(exchange);
+            String addressOrSymbol = params.get("addressOrSymbol");
+            String commentType = params.get("commentType");
+            sendResponse(exchange, removeComment(addressOrSymbol, commentType));
+        });
+
+        server.createContext("/comments/search", exchange -> {
+            Map<String, String> qparams = parseQueryParams(exchange);
+            String searchText = qparams.get("searchText");
+            boolean caseSensitive = Boolean.parseBoolean(qparams.getOrDefault("caseSensitive", "false"));
+            String commentTypesStr = qparams.get("commentTypes");
+            int maxResults = parseIntOrDefault(qparams.get("maxResults"), 100);
+            sendResponse(exchange, searchComments(searchText, caseSensitive, commentTypesStr, maxResults));
+        });
+
+        // Data tools
+        server.createContext("/data/apply_data_type", exchange -> {
+            Map<String, String> params = parsePostParams(exchange);
+            String addressOrSymbol = params.get("addressOrSymbol");
+            String dataTypeString = params.get("dataTypeString");
+            String archiveName = params.getOrDefault("archiveName", "");
+            sendResponse(exchange, applyDataType(addressOrSymbol, dataTypeString, archiveName));
+        });
+
+        // Symbols tools
+        server.createContext("/symbols/get_count", exchange -> {
+            Map<String, String> qparams = parseQueryParams(exchange);
+            boolean includeExternal = Boolean.parseBoolean(qparams.getOrDefault("includeExternal", "false"));
+            boolean filterDefaultNames = Boolean.parseBoolean(qparams.getOrDefault("filterDefaultNames", "true"));
+            sendResponse(exchange, getSymbolsCount(includeExternal, filterDefaultNames));
+        });
+
+        server.createContext("/symbols/get", exchange -> {
+            Map<String, String> qparams = parseQueryParams(exchange);
+            boolean includeExternal = Boolean.parseBoolean(qparams.getOrDefault("includeExternal", "false"));
+            int startIndex = parseIntOrDefault(qparams.get("startIndex"), 0);
+            int maxCount = parseIntOrDefault(qparams.get("maxCount"), 200);
+            boolean filterDefaultNames = Boolean.parseBoolean(qparams.getOrDefault("filterDefaultNames", "true"));
+            sendResponse(exchange, getSymbols(includeExternal, startIndex, maxCount, filterDefaultNames));
+        });
+
+        // Imports/Exports tools
+        server.createContext("/imports/find_references", exchange -> {
+            Map<String, String> qparams = parseQueryParams(exchange);
+            String importName = qparams.get("importName");
+            String libraryName = qparams.get("libraryName");
+            int maxResults = parseIntOrDefault(qparams.get("maxResults"), 100);
+            sendResponse(exchange, findImportReferences(importName, libraryName, maxResults));
+        });
+
+        server.createContext("/imports/resolve_thunk", exchange -> {
+            Map<String, String> qparams = parseQueryParams(exchange);
+            String address = qparams.get("address");
+            sendResponse(exchange, resolveThunk(address));
+        });
+
+        // Call Graph tools
+        server.createContext("/callgraph/get_tree", exchange -> {
+            Map<String, String> qparams = parseQueryParams(exchange);
+            String functionAddress = qparams.get("functionAddress");
+            String direction = qparams.getOrDefault("direction", "callees");
+            int maxDepth = parseIntOrDefault(qparams.get("maxDepth"), 3);
+            sendResponse(exchange, getCallTree(functionAddress, direction, maxDepth));
+        });
+
+        server.createContext("/callgraph/find_common_callers", exchange -> {
+            Map<String, String> params = parsePostParams(exchange);
+            String functionAddressesStr = params.get("functionAddresses");
+            sendResponse(exchange, findCommonCallers(functionAddressesStr));
+        });
+
+        // Constants tools
+        server.createContext("/constants/list_common", exchange -> {
+            Map<String, String> qparams = parseQueryParams(exchange);
+            boolean includeSmallValues = Boolean.parseBoolean(qparams.getOrDefault("includeSmallValues", "false"));
+            String minValue = qparams.get("minValue");
+            int topN = parseIntOrDefault(qparams.get("topN"), 50);
+            sendResponse(exchange, listCommonConstants(includeSmallValues, minValue, topN));
+        });
+
+        // Data Flow tools
+        server.createContext("/dataflow/find_variable_accesses", exchange -> {
+            Map<String, String> qparams = parseQueryParams(exchange);
+            String functionAddress = qparams.get("functionAddress");
+            String variableName = qparams.get("variableName");
+            sendResponse(exchange, findVariableAccesses(functionAddress, variableName));
+        });
+
+        // Vtable tools
+        server.createContext("/vtable/find_containing_function", exchange -> {
+            Map<String, String> qparams = parseQueryParams(exchange);
+            String functionAddress = qparams.get("functionAddress");
+            sendResponse(exchange, findVtablesContainingFunction(functionAddress));
+        });
+
+        // Bookmarks tools
+        server.createContext("/bookmarks/remove", exchange -> {
+            Map<String, String> params = parsePostParams(exchange);
+            String addressOrSymbol = params.get("addressOrSymbol");
+            String type = params.get("type");
+            String category = params.get("category");
+            sendResponse(exchange, removeBookmark(addressOrSymbol, type, category));
+        });
+
+        server.createContext("/bookmarks/list_categories", exchange -> {
+            Map<String, String> qparams = parseQueryParams(exchange);
+            String type = qparams.get("type");
+            sendResponse(exchange, listBookmarkCategories(type));
+        });
+
+        // Decompiler tools
+        server.createContext("/decompiler/search", exchange -> {
+            Map<String, String> qparams = parseQueryParams(exchange);
+            String pattern = qparams.get("pattern");
+            boolean caseSensitive = Boolean.parseBoolean(qparams.getOrDefault("caseSensitive", "false"));
+            int maxResults = parseIntOrDefault(qparams.get("maxResults"), 50);
+            boolean overrideMaxFunctionsLimit = Boolean.parseBoolean(qparams.getOrDefault("overrideMaxFunctionsLimit", "false"));
+            sendResponse(exchange, searchDecompilation(pattern, caseSensitive, maxResults, overrideMaxFunctionsLimit));
+        });
+
+        server.createContext("/decompiler/rename_variables", exchange -> {
+            Map<String, String> params = parsePostParams(exchange);
+            String functionNameOrAddress = params.get("functionNameOrAddress");
+            String variableMappingsStr = params.get("variableMappings");
+            sendResponse(exchange, renameVariables(functionNameOrAddress, variableMappingsStr));
+        });
+
+        server.createContext("/decompiler/change_variable_datatypes", exchange -> {
+            Map<String, String> params = parsePostParams(exchange);
+            String functionNameOrAddress = params.get("functionNameOrAddress");
+            String datatypeMappingsStr = params.get("datatypeMappings");
+            String archiveName = params.getOrDefault("archiveName", "");
+            sendResponse(exchange, changeVariableDataTypes(functionNameOrAddress, datatypeMappingsStr, archiveName));
+        });
+
+        server.createContext("/decompiler/get_callers_decompiled", exchange -> {
+            Map<String, String> qparams = parseQueryParams(exchange);
+            String functionNameOrAddress = qparams.get("functionNameOrAddress");
+            int startIndex = parseIntOrDefault(qparams.get("startIndex"), 0);
+            int maxCallers = parseIntOrDefault(qparams.get("maxCallers"), 10);
+            boolean includeCallContext = Boolean.parseBoolean(qparams.getOrDefault("includeCallContext", "true"));
+            sendResponse(exchange, getCallersDecompiled(functionNameOrAddress, startIndex, maxCallers, includeCallContext));
+        });
+
+        server.createContext("/decompiler/get_referencers_decompiled", exchange -> {
+            Map<String, String> qparams = parseQueryParams(exchange);
+            String addressOrSymbol = qparams.get("addressOrSymbol");
+            int startIndex = parseIntOrDefault(qparams.get("startIndex"), 0);
+            int maxReferencers = parseIntOrDefault(qparams.get("maxReferencers"), 10);
+            boolean includeRefContext = Boolean.parseBoolean(qparams.getOrDefault("includeRefContext", "true"));
+            boolean includeDataRefs = Boolean.parseBoolean(qparams.getOrDefault("includeDataRefs", "true"));
+            sendResponse(exchange, getReferencersDecompiled(addressOrSymbol, startIndex, maxReferencers, includeRefContext, includeDataRefs));
+        });
+
+        // DataType tools
+        server.createContext("/datatypes/get_archives", exchange -> {
+            sendResponse(exchange, getDataTypeArchives());
+        });
+
+        server.createContext("/datatypes/get_types", exchange -> {
+            Map<String, String> qparams = parseQueryParams(exchange);
+            String archiveName = qparams.get("archiveName");
+            String categoryPath = qparams.getOrDefault("categoryPath", "/");
+            boolean includeSubcategories = Boolean.parseBoolean(qparams.getOrDefault("includeSubcategories", "false"));
+            int startIndex = parseIntOrDefault(qparams.get("startIndex"), 0);
+            int maxCount = parseIntOrDefault(qparams.get("maxCount"), 100);
+            sendResponse(exchange, getDataTypes(archiveName, categoryPath, includeSubcategories, startIndex, maxCount));
+        });
+
+        server.createContext("/datatypes/get_by_string", exchange -> {
+            Map<String, String> qparams = parseQueryParams(exchange);
+            String dataTypeString = qparams.get("dataTypeString");
+            String archiveName = qparams.getOrDefault("archiveName", "");
+            sendResponse(exchange, getDataTypeByString(dataTypeString, archiveName));
+        });
+
+        // Import/Export tools
+        server.createContext("/imports/list", exchange -> {
+            Map<String, String> qparams = parseQueryParams(exchange);
+            String libraryFilter = qparams.get("libraryFilter");
+            int maxResults = parseIntOrDefault(qparams.get("maxResults"), 500);
+            int startIndex = parseIntOrDefault(qparams.get("startIndex"), 0);
+            boolean groupByLibrary = Boolean.parseBoolean(qparams.getOrDefault("groupByLibrary", "true"));
+            sendResponse(exchange, listImportsEnhanced(libraryFilter, maxResults, startIndex, groupByLibrary));
+        });
+
+        server.createContext("/exports/list", exchange -> {
+            Map<String, String> qparams = parseQueryParams(exchange);
+            int maxResults = parseIntOrDefault(qparams.get("maxResults"), 500);
+            int startIndex = parseIntOrDefault(qparams.get("startIndex"), 0);
+            sendResponse(exchange, listExportsEnhanced(maxResults, startIndex));
+        });
+
+        // Enhanced string tools
+        server.createContext("/strings/get", exchange -> {
+            Map<String, String> qparams = parseQueryParams(exchange);
+            int startIndex = parseIntOrDefault(qparams.get("startIndex"), 0);
+            int maxCount = parseIntOrDefault(qparams.get("maxCount"), 100);
+            boolean includeReferencingFunctions = Boolean.parseBoolean(qparams.getOrDefault("includeReferencingFunctions", "false"));
+            sendResponse(exchange, getStringsEnhanced(startIndex, maxCount, includeReferencingFunctions));
+        });
+
+        // Enhanced decompiler tools
+        server.createContext("/decompiler/get_decompilation", exchange -> {
+            Map<String, String> qparams = parseQueryParams(exchange);
+            String functionNameOrAddress = qparams.get("functionNameOrAddress");
+            int offset = parseIntOrDefault(qparams.get("offset"), 1);
+            int limit = parseIntOrDefault(qparams.get("limit"), 50);
+            boolean includeCallers = Boolean.parseBoolean(qparams.getOrDefault("includeCallers", "false"));
+            boolean includeCallees = Boolean.parseBoolean(qparams.getOrDefault("includeCallees", "false"));
+            boolean includeComments = Boolean.parseBoolean(qparams.getOrDefault("includeComments", "false"));
+            boolean includeIncomingReferences = Boolean.parseBoolean(qparams.getOrDefault("includeIncomingReferences", "true"));
+            boolean includeReferenceContext = Boolean.parseBoolean(qparams.getOrDefault("includeReferenceContext", "true"));
+            sendResponse(exchange, getDecompilationEnhanced(functionNameOrAddress, offset, limit, includeCallers, includeCallees, includeComments, includeIncomingReferences, includeReferenceContext));
+        });
+
+        server.createContext("/decompiler/set_decompilation_comment", exchange -> {
+            Map<String, String> params = parsePostParams(exchange);
+            String functionNameOrAddress = params.get("functionNameOrAddress");
+            int lineNumber = parseIntOrDefault(params.get("lineNumber"), 1);
+            String comment = params.get("comment");
+            String commentType = params.getOrDefault("commentType", "eol");
+            sendResponse(exchange, setDecompilationCommentEnhanced(functionNameOrAddress, lineNumber, comment, commentType));
+        });
+
+        // Enhanced callgraph tools
+        server.createContext("/callgraph/get_tree", exchange -> {
+            Map<String, String> qparams = parseQueryParams(exchange);
+            String functionAddress = qparams.get("functionAddress");
+            String direction = qparams.getOrDefault("direction", "callees");
+            int maxDepth = parseIntOrDefault(qparams.get("maxDepth"), 3);
+            sendResponse(exchange, getCallTreeEnhanced(functionAddress, direction, maxDepth));
+        });
+
+        // Structure tools
+        server.createContext("/structures/parse_c_structure", exchange -> {
+            Map<String, String> params = parsePostParams(exchange);
+            String cDefinition = params.get("cDefinition");
+            String category = params.getOrDefault("category", "/");
+            sendResponse(exchange, parseCStructure(cDefinition, category));
+        });
+
+        server.createContext("/structures/validate_c_structure", exchange -> {
+            Map<String, String> params = parsePostParams(exchange);
+            String cDefinition = params.get("cDefinition");
+            sendResponse(exchange, validateCStructure(cDefinition));
+        });
+
+        server.createContext("/structures/create_structure", exchange -> {
+            Map<String, String> params = parsePostParams(exchange);
+            String name = params.get("name");
+            int size = parseIntOrDefault(params.get("size"), 0);
+            String type = params.getOrDefault("type", "structure");
+            String category = params.getOrDefault("category", "/");
+            boolean packed = Boolean.parseBoolean(params.getOrDefault("packed", "false"));
+            String description = params.get("description");
+            sendResponse(exchange, createStructure(name, size, type, category, packed, description));
+        });
+
+        server.createContext("/structures/add_structure_field", exchange -> {
+            Map<String, String> params = parsePostParams(exchange);
+            String structureName = params.get("structureName");
+            String fieldName = params.get("fieldName");
+            String dataType = params.get("dataType");
+            Integer offset = params.get("offset") != null && !params.get("offset").isEmpty() ? parseIntOrDefault(params.get("offset"), 0) : null;
+            String comment = params.get("comment");
+            sendResponse(exchange, addStructureField(structureName, fieldName, dataType, offset, comment));
+        });
+
+        server.createContext("/structures/modify_structure_field", exchange -> {
+            Map<String, String> params = parsePostParams(exchange);
+            String structureName = params.get("structureName");
+            String fieldName = params.get("fieldName");
+            Integer offset = params.get("offset") != null && !params.get("offset").isEmpty() ? parseIntOrDefault(params.get("offset"), 0) : null;
+            String newDataType = params.get("newDataType");
+            String newFieldName = params.get("newFieldName");
+            String newComment = params.get("newComment");
+            Integer newLength = params.get("newLength") != null && !params.get("newLength").isEmpty() ? parseIntOrDefault(params.get("newLength"), 0) : null;
+            sendResponse(exchange, modifyStructureField(structureName, fieldName, offset, newDataType, newFieldName, newComment, newLength));
+        });
+
+        server.createContext("/structures/modify_structure_from_c", exchange -> {
+            Map<String, String> params = parsePostParams(exchange);
+            String cDefinition = params.get("cDefinition");
+            sendResponse(exchange, modifyStructureFromC(cDefinition));
+        });
+
+        server.createContext("/structures/get_structure_info", exchange -> {
+            Map<String, String> qparams = parseQueryParams(exchange);
+            String structureName = qparams.get("structureName");
+            sendResponse(exchange, getStructureInfo(structureName));
+        });
+
+        server.createContext("/structures/list_structures", exchange -> {
+            Map<String, String> qparams = parseQueryParams(exchange);
+            String category = qparams.get("category");
+            String nameFilter = qparams.get("nameFilter");
+            boolean includeBuiltIn = Boolean.parseBoolean(qparams.getOrDefault("includeBuiltIn", "false"));
+            sendResponse(exchange, listStructures(category, nameFilter, includeBuiltIn));
+        });
+
+        server.createContext("/structures/apply_structure", exchange -> {
+            Map<String, String> params = parsePostParams(exchange);
+            String structureName = params.get("structureName");
+            String addressOrSymbol = params.get("addressOrSymbol");
+            boolean clearExisting = Boolean.parseBoolean(params.getOrDefault("clearExisting", "true"));
+            sendResponse(exchange, applyStructure(structureName, addressOrSymbol, clearExisting));
+        });
+
+        server.createContext("/structures/delete_structure", exchange -> {
+            Map<String, String> params = parsePostParams(exchange);
+            String structureName = params.get("structureName");
+            boolean force = Boolean.parseBoolean(params.getOrDefault("force", "false"));
+            sendResponse(exchange, deleteStructure(structureName, force));
+        });
+
+        server.createContext("/structures/parse_c_header", exchange -> {
+            Map<String, String> params = parsePostParams(exchange);
+            String headerContent = params.get("headerContent");
+            String category = params.getOrDefault("category", "/");
+            sendResponse(exchange, parseCHeader(headerContent, category));
+        });
+
+        // Project tools
+        server.createContext("/project/get_current_program", exchange -> {
+            sendResponse(exchange, getCurrentProgramInfo());
+        });
+
+        server.createContext("/project/list_open_programs", exchange -> {
+            sendResponse(exchange, listOpenPrograms());
+        });
+
+        server.createContext("/project/list_project_files", exchange -> {
+            Map<String, String> qparams = parseQueryParams(exchange);
+            String folderPath = qparams.getOrDefault("folderPath", "/");
+            boolean recursive = Boolean.parseBoolean(qparams.getOrDefault("recursive", "false"));
+            sendResponse(exchange, listProjectFiles(folderPath, recursive));
+        });
+
+        server.createContext("/project/checkin_program", exchange -> {
+            Map<String, String> params = parsePostParams(exchange);
+            String programPath = params.get("programPath");
+            String message = params.get("message");
+            boolean keepCheckedOut = Boolean.parseBoolean(params.getOrDefault("keepCheckedOut", "false"));
+            sendResponse(exchange, checkinProgram(programPath, message, keepCheckedOut));
+        });
+
+        server.createContext("/project/analyze_program", exchange -> {
+            Map<String, String> qparams = parseQueryParams(exchange);
+            String programPath = qparams.get("programPath");
+            sendResponse(exchange, analyzeProgram(programPath));
+        });
+
+        server.createContext("/project/change_processor", exchange -> {
+            Map<String, String> params = parsePostParams(exchange);
+            String programPath = params.get("programPath");
+            String languageId = params.get("languageId");
+            String compilerSpecId = params.get("compilerSpecId");
+            sendResponse(exchange, changeProcessor(programPath, languageId, compilerSpecId));
+        });
+
+        server.createContext("/project/open_project", exchange -> {
+            Map<String, String> params = parsePostParams(exchange);
+            String projectPath = params.get("projectPath");
+            boolean openAllPrograms = Boolean.parseBoolean(params.getOrDefault("openAllPrograms", "true"));
+            sendResponse(exchange, openProject(projectPath, openAllPrograms));
+        });

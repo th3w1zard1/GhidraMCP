@@ -66,7 +66,7 @@ def safe_post(endpoint: str, data: dict | str) -> str:
 
 
 @mcp.tool()
-def get_function_consolidated(
+def get_function(
     identifier: str,
     view: Literal["decompile", "disassemble", "info", "calls"] = "decompile",
     offset: int = 1,
@@ -129,8 +129,8 @@ def get_function_consolidated(
 
 
 @mcp.tool()
-def list_functions_consolidated(
-    mode: str = "all",
+def list_functions(
+    mode: Literal["all", "search", "similarity", "undefined", "count"] = "all",
     query: str = "",
     search_string: str = "",
     min_reference_count: int = 1,
@@ -220,8 +220,8 @@ def list_functions_consolidated(
 
 
 @mcp.tool()
-def manage_function_consolidated(
-    action: str,
+def manage_function(
+    action: Literal["create", "rename_function", "rename_variable", "set_prototype", "set_variable_type", "change_datatypes"] = "create",
     address: str = "",
     function_identifier: str = "",
     name: str = "",
@@ -334,7 +334,7 @@ def manage_function_consolidated(
 
 
 @mcp.tool()
-def get_call_graph_consolidated(
+def get_call_graph(
     function_identifier: str,
     mode: str = "graph",
     depth: int = 1,
@@ -420,7 +420,7 @@ def get_call_graph_consolidated(
 
 
 @mcp.tool()
-def get_references_consolidated(
+def get_references(
     target: str,
     mode: str = "both",
     direction: str = "both",
@@ -507,7 +507,7 @@ def get_references_consolidated(
 
 
 @mcp.tool()
-def analyze_data_flow_consolidated(
+def analyze_data_flow(
     function_address: str,
     start_address: str = "",
     variable_name: str = "",
@@ -555,7 +555,7 @@ def analyze_data_flow_consolidated(
 
 
 @mcp.tool()
-def search_constants_consolidated(
+def search_constants(
     mode: str = "specific",
     value: str = "",
     min_value: str = "",
@@ -616,8 +616,8 @@ def search_constants_consolidated(
 
 
 @mcp.tool()
-def manage_strings_consolidated(
-    mode: str = "list",
+def manage_strings(
+    mode: Literal["list", "regex", "count", "similarity"] = "list",
     pattern: str = "",
     search_string: str = "",
     filter: str = "",
@@ -686,8 +686,8 @@ def manage_strings_consolidated(
 
 
 @mcp.tool()
-def inspect_memory_consolidated(
-    mode: str = "blocks",
+def inspect_memory(
+    mode: Literal["blocks", "read", "data_at", "data_items", "segments"] = "blocks",
     address: str = "",
     length: int = 16,
     offset: int = 0,
@@ -734,8 +734,8 @@ def inspect_memory_consolidated(
 
 
 @mcp.tool()
-def manage_bookmarks_consolidated(
-    action: str = "get",
+def manage_bookmarks(
+    action: Literal["set", "get", "search", "remove", "categories"] = "get",
     address: str = "",
     address_or_symbol: str = "",
     type: str = "",
@@ -811,8 +811,8 @@ def manage_bookmarks_consolidated(
 
 
 @mcp.tool()
-def manage_comments_consolidated(
-    action: str = "get",
+def manage_comments(
+    action: Literal["get", "set", "remove", "list"] = "get",
     address: str = "",
     address_or_symbol: str = "",
     function: str = "",
@@ -937,8 +937,8 @@ def manage_comments_consolidated(
 
 
 @mcp.tool()
-def analyze_vtables_consolidated(
-    mode: str = "analyze",
+def analyze_vtables(
+    mode: Literal["analyze", "callers", "containing"] = "analyze",
     vtable_address: str = "",
     function_address: str = "",
     max_entries: int = 200,
@@ -987,8 +987,8 @@ def analyze_vtables_consolidated(
 
 
 @mcp.tool()
-def manage_symbols_consolidated(
-    mode: str = "symbols",
+def manage_symbols(
+    mode: Literal["classes", "namespaces", "imports", "exports", "create_label", "symbols", "count", "rename_data"] = "symbols",
     address: str = "",
     label_name: str = "",
     new_name: str = "",
@@ -1097,8 +1097,8 @@ def manage_symbols_consolidated(
 
 
 @mcp.tool()
-def manage_structures_consolidated(
-    action: str = "list",
+def manage_structures(
+    action: Literal["parse", "validate", "create", "add_field", "modify_field", "modify_from_c", "info", "list", "apply", "delete", "parse_header"] = "list",
     c_definition: str = "",
     header_content: str = "",
     structure_name: str = "",
@@ -1272,8 +1272,8 @@ def manage_structures_consolidated(
 
 
 @mcp.tool()
-def manage_data_types_consolidated(
-    action: str = "list",
+def manage_data_types(
+    action: Literal["archives", "list", "by_string", "apply"] = "list",
     archive_name: str = "",
     category_path: str = "/",
     include_subcategories: bool = False,
@@ -1343,7 +1343,7 @@ def manage_data_types_consolidated(
 
 
 @mcp.tool()
-def get_current_context_consolidated(mode: str = "both") -> str:
+def get_current_context(mode: Literal["address", "function", "both"] = "both") -> str:
     """
     Current context retrieval tool that replaces: get_current_address, get_current_function
 
@@ -1370,7 +1370,7 @@ def get_current_context_consolidated(mode: str = "both") -> str:
 
 
 @mcp.tool()
-def manage_function_tags_consolidated(function: str, mode: str, tags: str = "") -> str:
+def manage_function_tags(function: str = "", mode: Literal["get", "set", "add", "remove", "list"] = "list", tags: str = "") -> str:
     """
     Function tag management tool that replaces: function_tags
 

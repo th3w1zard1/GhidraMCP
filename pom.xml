@@ -98,7 +98,7 @@
           <outputDirectory>${project.build.directory}</outputDirectory>
         </configuration>
       </plugin>
-      
+
       <!-- The Assembly Plugin for creating the Ghidra extension ZIP -->
       <plugin>
         <groupId>org.apache.maven.plugins</groupId>
@@ -109,14 +109,14 @@
           <descriptors>
             <descriptor>src/assembly/ghidra-extension.xml</descriptor>
           </descriptors>
-          
+
           <!-- The name of the final zip -->
           <finalName>GhidraMCP-${project.version}</finalName>
-          
+
           <!-- Don't append the assembly ID -->
           <appendAssemblyId>false</appendAssemblyId>
         </configuration>
-        
+
         <executions>
           <execution>
             <id>make-assembly</id>
@@ -127,7 +127,7 @@
           </execution>
         </executions>
       </plugin>
-      
+
       <!-- Copy dependencies to target/lib for the assembly -->
       <plugin>
         <groupId>org.apache.maven.plugins</groupId>
