@@ -66,7 +66,6 @@ import ghidra.framework.model.ProjectLocator;
 import ghidra.base.project.GhidraProject;
 import ghidra.app.plugin.core.analysis.AutoAnalysisManager;
 import ghidra.program.model.lang.LanguageService;
-import ghidra.program.model.lang.DefaultLanguageService;
 import ghidra.program.model.lang.LanguageID;
 import ghidra.program.model.lang.Language;
 import ghidra.program.model.lang.CompilerSpec;
