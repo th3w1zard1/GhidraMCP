@@ -57,6 +57,7 @@ import ghidra.program.model.data.UnionDataType;
 import ghidra.program.model.data.DataTypeComponent;
 import ghidra.program.model.data.BitFieldDataType;
 import ghidra.program.model.data.StandAloneDataTypeManager;
+import ghidra.program.model.data.SourceArchive;
 import ghidra.framework.main.AppInfo;
 import ghidra.framework.model.Project;
 import ghidra.framework.model.DomainFile;
@@ -73,6 +74,8 @@ import ghidra.program.model.lang.CompilerSpecID;
 import ghidra.program.model.lang.LanguageCompilerSpecPair;
 import ghidra.program.model.lang.LanguageNotFoundException;
 import java.io.File;
+import org.json.JSONObject;
+import org.json.JSONArray;
 
 import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpServer;
@@ -5200,6 +5203,48 @@ public class GhidraMCPPlugin extends Plugin {
         }
     }
 
+    private Address parseAddress(String addressStr) {
+        if (addressStr == null || addressStr.trim().isEmpty()) {
+            return null;
+        }
+        try {
+            Program program = getCurrentProgram();
+            if (program == null) return null;
+            return program.getAddressFactory().getAddress(addressStr);
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
+    private Function getFunction(String identifier) {
+        if (identifier == null || identifier.trim().isEmpty()) {
+            return null;
+        }
+        Program program = getCurrentProgram();
+        if (program == null) return null;
+
+        try {
+            // Try to parse as address first
+            Address addr = program.getAddressFactory().getAddress(identifier);
+            if (addr != null) {
+                return program.getFunctionManager().getFunctionAt(addr);
+            }
+        } catch (Exception e) {
+            // Not a valid address, try as function name
+        }
+
+        // Try to find by name
+        FunctionIterator funcIter = program.getFunctionManager().getFunctions(true);
+        while (funcIter.hasNext()) {
+            Function func = funcIter.next();
+            if (identifier.equals(func.getName())) {
+                return func;
+            }
+        }
+
+        return null;
+    }
+
     // ----------------------------------------------------------------------------------
     // Consolidated tool methods for 17 parametric tools
     // ----------------------------------------------------------------------------------
@@ -6100,13 +6145,12 @@ public class GhidraMCPPlugin extends Plugin {
                 // List data types
                 Category cat = dtm.getCategory(new CategoryPath(categoryPath));
                 if (cat != null) {
-                    Iterator<DataType> dtIter = cat.getDataTypes();
+                    DataType[] dataTypes = cat.getDataTypes();
                     int count = 0;
                     int added = 0;
 
-                    while (dtIter.hasNext() && added < maxCount) {
-                        DataType dt = dtIter.next();
-                        if (count >= startIndex) {
+                    for (DataType dt : dataTypes) {
+                        if (count >= startIndex && added < maxCount) {
                             JSONObject dtObj = new JSONObject();
                             dtObj.put("name", dt.getName());
                             dtObj.put("size", dt.getLength());
@@ -6176,8 +6220,7 @@ public class GhidraMCPPlugin extends Plugin {
 
             if ("get".equals(mode) && function != null) {
                 // Get tags for function
-                Function func = getFunctionByAddress(function);
-                if (func == null) func = getFunctionByName(function);
+                Function func = getFunction(function);
 
                 if (func != null) {
                     JSONObject tagsObj = new JSONObject();
@@ -6186,15 +6229,15 @@ public class GhidraMCPPlugin extends Plugin {
                     result.put(tagsObj);
                 }
 
-            } else if ("set".equals(action) && function != null && tags != null) {
+            } else if ("set".equals(mode) && function != null && tags != null) {
                 // Set tags for function - simplified
                 return "Function tags set (not fully implemented)";
 
-            } else if ("add".equals(action) && function != null && tags != null) {
+            } else if ("add".equals(mode) && function != null && tags != null) {
                 // Add tags to function - simplified
                 return "Function tags added (not fully implemented)";
 
-            } else if ("remove".equals(action) && function != null && tags != null) {
+            } else if ("remove".equals(mode) && function != null && tags != null) {
                 // Remove tags from function - simplified
                 return "Function tags removed (not fully implemented)";
 
