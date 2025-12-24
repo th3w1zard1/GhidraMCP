@@ -6125,7 +6125,7 @@ public class GhidraMCPPlugin extends Plugin {
 
             if ("archives".equals(action)) {
                 // List data type archives
-                Iterator<SourceArchive> archives = dtm.getSourceArchives();
+                Iterator<SourceArchive> archives = dtm.getSourceArchives().iterator();
                 while (archives.hasNext()) {
                     SourceArchive archive = archives.next();
                     JSONObject archiveObj = new JSONObject();
