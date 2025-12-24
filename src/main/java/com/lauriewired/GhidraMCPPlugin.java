@@ -5403,7 +5403,7 @@ public class GhidraMCPPlugin extends Plugin {
         if (program == null) return "No program loaded";
 
         try {
-            Function func = getFunctionByAddress(functionAddress);
+            Function func = getFunction(functionAddress);
             if (func == null) return "Function not found: " + functionAddress;
 
             Address startAddr = parseAddress(startAddress);
