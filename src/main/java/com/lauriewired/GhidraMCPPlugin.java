@@ -3882,7 +3882,6 @@ public class GhidraMCPPlugin extends Plugin {
                             }
                         }
                     }
-                    HighFunctionDBUtil.commitLocalVariablesToDatabase(highFunc, ReturnCommitOption.COMMIT, new ConsoleTaskMonitor());
                     program.endTransaction(txId, true);
                     return "Variables renamed successfully";
                 } catch (Exception e) {
@@ -3952,7 +3951,6 @@ public class GhidraMCPPlugin extends Plugin {
                             }
                         }
                     }
-                    HighFunctionDBUtil.commitLocalVariablesToDatabase(highFunc, ReturnCommitOption.COMMIT, new ConsoleTaskMonitor());
                     program.endTransaction(txId, true);
                     return "Variable data types changed successfully";
                 } catch (Exception e) {
