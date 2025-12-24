@@ -4623,7 +4623,7 @@ public class GhidraMCPPlugin extends Plugin {
         }
         visited.add(funcKey);
 
-        Function[] callers = function.getCallingFunctions(TaskMonitor.DUMMY);
+        Function[] callers = function.getCallingFunctions(TaskMonitor.DUMMY).toArray(new Function[0]);
         result.append("{\"name\":\"").append(function.getName()).append("\",");
         result.append("\"address\":\"").append(function.getEntryPoint().toString()).append("\",");
         result.append("\"callers\":[");
