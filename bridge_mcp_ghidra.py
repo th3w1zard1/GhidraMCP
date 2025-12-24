@@ -7,6 +7,8 @@
 # ///
 from __future__ import annotations
 
+from typing import Literal
+
 import argparse
 import logging
 from urllib.parse import urljoin
@@ -946,17 +948,17 @@ def list_functions(
 
 @mcp.tool()
 def manage_function(
-    action: str,
-    address: str = "",
-    function_identifier: str = "",
+    action: Literal["create", "rename_function", "rename_variable", "set_prototype", "set_variable_type", "change_datatypes"],
+    address: str,
+    function_identifier: str,
     name: str = "",
     old_name: str = "",
-    new_name: str = "",
+    new_name: str,
     variable_mappings: str = "",
-    prototype: str = "",
-    variable_name: str = "",
-    new_type: str = "",
-    datatype_mappings: str = "",
+    prototype: str,
+    variable_name: str,
+    new_type: str,
+    datatype_mappings: str,
     archive_name: str = "",
 ) -> str:
     """
@@ -1823,13 +1825,13 @@ def manage_symbols(
 
 @mcp.tool()
 def manage_structures(
-    action: str = "list",
+    action: Literal["parse", "validate", "create", "add_field", "modify_field", "modify_from_c", "info", "list", "apply", "delete", "parse_header"] = "list",
     c_definition: str = "",
     header_content: str = "",
     structure_name: str = "",
     name: str = "",
     size: int = 0,
-    type: str = "structure",
+    type: Literal["structure", "union"] = "structure",
     category: str = "/",
     packed: bool = False,
     description: str = "",
@@ -1998,7 +2000,7 @@ def manage_structures(
 
 @mcp.tool()
 def manage_data_types(
-    action: str = "list",
+    action: Literal["archives", "list", "by_string", "apply"] = "list",
     archive_name: str = "",
     category_path: str = "/",
     include_subcategories: bool = False,
@@ -2068,7 +2070,7 @@ def manage_data_types(
 
 
 @mcp.tool()
-def get_current_context(mode: str = "both") -> str:
+def get_current_context(mode: Literal["address", "function", "both"] = "both") -> str:
     """
     Current context retrieval tool that replaces: get_current_address, get_current_function
 
@@ -2095,15 +2097,15 @@ def get_current_context(mode: str = "both") -> str:
 
 
 @mcp.tool()
-def manage_function_tags(function: str, mode: str, tags: str = "") -> str:
+def manage_function_tags(mode: Literal["get", "set", "add", "remove", "list"] = "list", function: str, tags: str = "") -> str:
     """
     Function tag management tool that replaces: function_tags
 
     Manage function tags to categorize functions (e.g., 'AI', 'rendering'). Tags can be retrieved, set, added, removed, or listed.
 
     Args:
-        function: Function name or address (required for get/set/add/remove modes, not required for list mode)
         mode: Operation mode enum ('get', 'set', 'add', 'remove', 'list'; required)
+        function: Function name or address (required for get/set/add/remove modes, not required for list mode)
         tags: Tag names (required for add mode; optional for set/remove modes). Comma-separated format (e.g., "AI,rendering,encryption")
 
     Returns:
@@ -3163,11 +3165,19 @@ def parse_c_header(header_content: str, category: str = "/") -> str:
 
 # Consolidated tools replacing 90 individual tools with intelligent parameterization
 
+
 @mcp.tool()
-def get_function_consolidated(identifier: str, view: str = "decompile", offset: int = 1, limit: int = 50,
-                include_callers: bool = False, include_callees: bool = False,
-                include_comments: bool = False, include_incoming_references: bool = True,
-                include_reference_context: bool = True) -> str:
+def get_function_consolidated(
+    identifier: str,
+    view: str = "decompile",
+    offset: int = 1,
+    limit: int = 50,
+    include_callers: bool = False,
+    include_callees: bool = False,
+    include_comments: bool = False,
+    include_incoming_references: bool = True,
+    include_reference_context: bool = True,
+) -> str:
     """
     Unified function retrieval tool that replaces: decompile_function, decompile_function_by_address,
     get_decompilation, disassemble_function, get_function_by_address, get_function_info, list_function_calls
@@ -3192,30 +3202,45 @@ def get_function_consolidated(identifier: str, view: str = "decompile", offset: 
         - When view='calls': List of function calls made within the function
     """
     if view == "decompile":
-        return "\n".join(safe_get("decompiler/get_decompilation", {
-            "functionNameOrAddress": identifier,
-            "offset": offset,
-            "limit": limit,
-            "includeCallers": include_callers,
-            "includeCallees": include_callees,
-            "includeComments": include_comments,
-            "includeIncomingReferences": include_incoming_references,
-            "includeReferenceContext": include_reference_context
-        }))
+        return "\n".join(
+            safe_get(
+                "decompiler/get_decompilation",
+                {
+                    "functionNameOrAddress": identifier,
+                    "offset": offset,
+                    "limit": limit,
+                    "includeCallers": include_callers,
+                    "includeCallees": include_callees,
+                    "includeComments": include_comments,
+                    "includeIncomingReferences": include_incoming_references,
+                    "includeReferenceContext": include_reference_context,
+                },
+            )
+        )
     elif view == "disassemble":
         return "\n".join(safe_get("disassemble_function", {"address": identifier}))
     elif view == "info":
         return "\n".join(safe_get("get_function_info", {"address": identifier}))
     elif view == "calls":
-        return "\n".join(safe_get("list_function_calls", {"functionAddress": identifier}))
+        return "\n".join(
+            safe_get("list_function_calls", {"functionAddress": identifier})
+        )
     else:
         return f"Error: Invalid view mode '{view}'. Must be 'decompile', 'disassemble', 'info', or 'calls'"
 
 
 @mcp.tool()
-def list_functions_consolidated(mode: str = "all", query: str = "", search_string: str = "",
-                  min_reference_count: int = 1, start_index: int = 0, max_count: int = 100,
-                  offset: int = 0, limit: int = 100, filter_default_names: bool = True) -> str:
+def list_functions_consolidated(
+    mode: str = "all",
+    query: str = "",
+    search_string: str = "",
+    min_reference_count: int = 1,
+    start_index: int = 0,
+    max_count: int = 100,
+    offset: int = 0,
+    limit: int = 100,
+    filter_default_names: bool = True,
+) -> str:
     """
     Comprehensive function listing and search tool that replaces: list_functions, list_methods,
     search_functions_by_name, get_functions_by_similarity, get_undefined_function_candidates, get_function_count
@@ -3241,41 +3266,75 @@ def list_functions_consolidated(mode: str = "all", query: str = "", search_strin
         - When mode='count': JSON with total function count
     """
     if mode == "all":
-        return "\n".join(safe_get("methods", {"offset": offset or start_index, "limit": limit or max_count}))
+        return "\n".join(
+            safe_get(
+                "methods",
+                {"offset": offset or start_index, "limit": limit or max_count},
+            )
+        )
     elif mode == "search":
         if not query:
             return "Error: query string is required for search mode"
-        return "\n".join(safe_get("searchFunctions", {
-            "query": query,
-            "offset": offset or start_index,
-            "limit": limit or max_count
-        }))
+        return "\n".join(
+            safe_get(
+                "searchFunctions",
+                {
+                    "query": query,
+                    "offset": offset or start_index,
+                    "limit": limit or max_count,
+                },
+            )
+        )
     elif mode == "similarity":
         if not search_string:
             return "Error: search_string is required for similarity mode"
-        return "\n".join(safe_get("functions/get_by_similarity", {
-            "searchString": search_string,
-            "startIndex": start_index,
-            "maxCount": max_count,
-            "filterDefaultNames": filter_default_names
-        }))
+        return "\n".join(
+            safe_get(
+                "functions/get_by_similarity",
+                {
+                    "searchString": search_string,
+                    "startIndex": start_index,
+                    "maxCount": max_count,
+                    "filterDefaultNames": filter_default_names,
+                },
+            )
+        )
     elif mode == "undefined":
-        return "\n".join(safe_get("functions/get_undefined_candidates", {
-            "startIndex": start_index,
-            "maxCandidates": max_count,
-            "minReferenceCount": min_reference_count
-        }))
+        return "\n".join(
+            safe_get(
+                "functions/get_undefined_candidates",
+                {
+                    "startIndex": start_index,
+                    "maxCandidates": max_count,
+                    "minReferenceCount": min_reference_count,
+                },
+            )
+        )
     elif mode == "count":
-        return "\n".join(safe_get("functions/get_count", {"filterDefaultNames": filter_default_names}))
+        return "\n".join(
+            safe_get(
+                "functions/get_count", {"filterDefaultNames": filter_default_names}
+            )
+        )
     else:
         return f"Error: Invalid mode '{mode}'. Must be 'all', 'search', 'similarity', 'undefined', or 'count'"
 
 
 @mcp.tool()
-def manage_function_consolidated(action: str, address: str = "", function_identifier: str = "", name: str = "",
-                   old_name: str = "", new_name: str = "", variable_mappings: str = "",
-                   prototype: str = "", variable_name: str = "", new_type: str = "",
-                   datatype_mappings: str = "", archive_name: str = "") -> str:
+def manage_function_consolidated(
+    action: str,
+    address: str = "",
+    function_identifier: str = "",
+    name: str = "",
+    old_name: str = "",
+    new_name: str = "",
+    variable_mappings: str = "",
+    prototype: str = "",
+    variable_name: str = "",
+    new_type: str = "",
+    datatype_mappings: str = "",
+    archive_name: str = "",
+) -> str:
     """
     Function and variable manipulation tool that replaces: create_function, rename_function,
     rename_function_by_address, rename_variable, rename_variables, set_function_prototype,
@@ -3309,21 +3368,29 @@ def manage_function_consolidated(action: str, address: str = "", function_identi
             return "Error: function_identifier is required for rename_function action"
         if not new_name:
             return "Error: new_name is required for rename_function action"
-        return safe_post("renameFunction", {"oldName": function_identifier, "newName": new_name})
+        return safe_post(
+            "renameFunction", {"oldName": function_identifier, "newName": new_name}
+        )
     elif action == "rename_variable":
         if not function_identifier:
             return "Error: function_identifier is required for rename_variable action"
         if variable_mappings:
-            return safe_post("decompiler/rename_variables", {
-                "functionNameOrAddress": function_identifier,
-                "variableMappings": variable_mappings
-            })
+            return safe_post(
+                "decompiler/rename_variables",
+                {
+                    "functionNameOrAddress": function_identifier,
+                    "variableMappings": variable_mappings,
+                },
+            )
         elif old_name and new_name:
-            return safe_post("renameVariable", {
-                "functionName": function_identifier,
-                "oldName": old_name,
-                "newName": new_name
-            })
+            return safe_post(
+                "renameVariable",
+                {
+                    "functionName": function_identifier,
+                    "oldName": old_name,
+                    "newName": new_name,
+                },
+            )
         else:
             return "Error: either variable_mappings or both old_name and new_name are required for rename_variable action"
     elif action == "set_prototype":
@@ -3331,10 +3398,10 @@ def manage_function_consolidated(action: str, address: str = "", function_identi
             return "Error: function_identifier is required for set_prototype action"
         if not prototype:
             return "Error: prototype is required for set_prototype action"
-        return safe_post("set_function_prototype", {
-            "function_address": function_identifier,
-            "prototype": prototype
-        })
+        return safe_post(
+            "set_function_prototype",
+            {"function_address": function_identifier, "prototype": prototype},
+        )
     elif action == "set_variable_type":
         if not function_identifier:
             return "Error: function_identifier is required for set_variable_type action"
@@ -3342,30 +3409,43 @@ def manage_function_consolidated(action: str, address: str = "", function_identi
             return "Error: variable_name is required for set_variable_type action"
         if not new_type:
             return "Error: new_type is required for set_variable_type action"
-        return safe_post("set_local_variable_type", {
-            "function_address": function_identifier,
-            "variable_name": variable_name,
-            "new_type": new_type
-        })
+        return safe_post(
+            "set_local_variable_type",
+            {
+                "function_address": function_identifier,
+                "variable_name": variable_name,
+                "new_type": new_type,
+            },
+        )
     elif action == "change_datatypes":
         if not function_identifier:
             return "Error: function_identifier is required for change_datatypes action"
         if not datatype_mappings:
             return "Error: datatype_mappings is required for change_datatypes action"
-        return safe_post("decompiler/change_variable_datatypes", {
-            "functionNameOrAddress": function_identifier,
-            "datatypeMappings": datatype_mappings,
-            "archiveName": archive_name
-        })
+        return safe_post(
+            "decompiler/change_variable_datatypes",
+            {
+                "functionNameOrAddress": function_identifier,
+                "datatypeMappings": datatype_mappings,
+                "archiveName": archive_name,
+            },
+        )
     else:
         return f"Error: Invalid action '{action}'. Must be 'create', 'rename_function', 'rename_variable', 'set_prototype', 'set_variable_type', or 'change_datatypes'"
 
 
 @mcp.tool()
-def get_call_graph_consolidated(function_identifier: str, mode: str = "graph", depth: int = 1,
-                  direction: str = "callees", max_depth: int = 3, start_index: int = 0,
-                  max_callers: int = 10, include_call_context: bool = True,
-                  function_addresses: str = "") -> str:
+def get_call_graph_consolidated(
+    function_identifier: str,
+    mode: str = "graph",
+    depth: int = 1,
+    direction: str = "callees",
+    max_depth: int = 3,
+    start_index: int = 0,
+    max_callers: int = 10,
+    include_call_context: bool = True,
+    function_addresses: str = "",
+) -> str:
     """
     Call graph and relationship analysis tool that replaces: get_call_graph, get_call_tree,
     get_function_callers, get_function_callees, get_callers_decompiled, find_common_callers
@@ -3393,37 +3473,67 @@ def get_call_graph_consolidated(function_identifier: str, mode: str = "graph", d
         - When mode='common_callers': List of functions that call ALL of the specified target functions
     """
     if mode == "graph":
-        return "\n".join(safe_get("get_call_graph", {"functionAddress": function_identifier, "depth": depth}))
+        return "\n".join(
+            safe_get(
+                "get_call_graph",
+                {"functionAddress": function_identifier, "depth": depth},
+            )
+        )
     elif mode == "tree":
-        return "\n".join(safe_get("callgraph/get_tree", {
-            "functionAddress": function_identifier,
-            "direction": direction,
-            "maxDepth": max_depth
-        }))
+        return "\n".join(
+            safe_get(
+                "callgraph/get_tree",
+                {
+                    "functionAddress": function_identifier,
+                    "direction": direction,
+                    "maxDepth": max_depth,
+                },
+            )
+        )
     elif mode == "callers":
-        return "\n".join(safe_get("get_callers", {"functionAddress": function_identifier}))
+        return "\n".join(
+            safe_get("get_callers", {"functionAddress": function_identifier})
+        )
     elif mode == "callees":
-        return "\n".join(safe_get("get_callees", {"functionAddress": function_identifier}))
+        return "\n".join(
+            safe_get("get_callees", {"functionAddress": function_identifier})
+        )
     elif mode == "callers_decomp":
-        return "\n".join(safe_get("decompiler/get_callers_decompiled", {
-            "functionNameOrAddress": function_identifier,
-            "startIndex": start_index,
-            "maxCallers": max_callers,
-            "includeCallContext": include_call_context
-        }))
+        return "\n".join(
+            safe_get(
+                "decompiler/get_callers_decompiled",
+                {
+                    "functionNameOrAddress": function_identifier,
+                    "startIndex": start_index,
+                    "maxCallers": max_callers,
+                    "includeCallContext": include_call_context,
+                },
+            )
+        )
     elif mode == "common_callers":
         if not function_addresses:
             return "Error: function_addresses is required for common_callers mode"
-        return safe_post("callgraph/find_common_callers", {"functionAddresses": function_addresses})
+        return safe_post(
+            "callgraph/find_common_callers", {"functionAddresses": function_addresses}
+        )
     else:
         return f"Error: Invalid mode '{mode}'. Must be 'graph', 'tree', 'callers', 'callees', 'callers_decomp', or 'common_callers'"
 
 
 @mcp.tool()
-def get_references_consolidated(target: str, mode: str = "both", direction: str = "both", offset: int = 0,
-                  limit: int = 100, max_results: int = 100, library_name: str = "",
-                  start_index: int = 0, max_referencers: int = 10,
-                  include_ref_context: bool = True, include_data_refs: bool = True) -> str:
+def get_references_consolidated(
+    target: str,
+    mode: str = "both",
+    direction: str = "both",
+    offset: int = 0,
+    limit: int = 100,
+    max_results: int = 100,
+    library_name: str = "",
+    start_index: int = 0,
+    max_referencers: int = 10,
+    include_ref_context: bool = True,
+    include_data_refs: bool = True,
+) -> str:
     """
     Comprehensive cross-reference analysis tool that replaces: get_xrefs_to, get_xrefs_from,
     find_cross_references, get_function_xrefs, get_referencers_decompiled, find_import_references, resolve_thunk
@@ -3453,24 +3563,39 @@ def get_references_consolidated(target: str, mode: str = "both", direction: str 
         - When mode='thunk': JSON with thunk chain information
     """
     if mode == "to":
-        return "\n".join(safe_get("xrefs_to", {"address": target, "offset": offset, "limit": limit}))
+        return "\n".join(
+            safe_get("xrefs_to", {"address": target, "offset": offset, "limit": limit})
+        )
     elif mode == "from":
-        return "\n".join(safe_get("xrefs_from", {"address": target, "offset": offset, "limit": limit}))
+        return "\n".join(
+            safe_get(
+                "xrefs_from", {"address": target, "offset": offset, "limit": limit}
+            )
+        )
     elif mode == "both":
         params = {"location": target, "limit": limit}
         if direction != "both":
             params["direction"] = direction
         return "\n".join(safe_get("find_cross_references", params))
     elif mode == "function":
-        return "\n".join(safe_get("function_xrefs", {"name": target, "offset": offset, "limit": limit}))
+        return "\n".join(
+            safe_get(
+                "function_xrefs", {"name": target, "offset": offset, "limit": limit}
+            )
+        )
     elif mode == "referencers_decomp":
-        return "\n".join(safe_get("decompiler/get_referencers_decompiled", {
-            "addressOrSymbol": target,
-            "startIndex": start_index,
-            "maxReferencers": max_referencers,
-            "includeRefContext": include_ref_context,
-            "includeDataRefs": include_data_refs
-        }))
+        return "\n".join(
+            safe_get(
+                "decompiler/get_referencers_decompiled",
+                {
+                    "addressOrSymbol": target,
+                    "startIndex": start_index,
+                    "maxReferencers": max_referencers,
+                    "includeRefContext": include_ref_context,
+                    "includeDataRefs": include_data_refs,
+                },
+            )
+        )
     elif mode == "import":
         params = {"importName": target, "maxResults": max_results}
         if library_name:
@@ -3483,8 +3608,12 @@ def get_references_consolidated(target: str, mode: str = "both", direction: str 
 
 
 @mcp.tool()
-def analyze_data_flow_consolidated(function_address: str, start_address: str = "", variable_name: str = "",
-                     direction: str = "backward") -> str:
+def analyze_data_flow_consolidated(
+    function_address: str,
+    start_address: str = "",
+    variable_name: str = "",
+    direction: str = "backward",
+) -> str:
     """
     Data flow analysis tool that replaces: trace_data_flow_backward, trace_data_flow_forward, find_variable_accesses
 
@@ -3504,26 +3633,39 @@ def analyze_data_flow_consolidated(function_address: str, start_address: str = "
     if direction == "backward":
         if not start_address:
             return "Error: start_address is required for backward direction"
-        return "\n".join(safe_get("trace_data_flow_backward", {"address": start_address}))
+        return "\n".join(
+            safe_get("trace_data_flow_backward", {"address": start_address})
+        )
     elif direction == "forward":
         if not start_address:
             return "Error: start_address is required for forward direction"
-        return "\n".join(safe_get("trace_data_flow_forward", {"address": start_address}))
+        return "\n".join(
+            safe_get("trace_data_flow_forward", {"address": start_address})
+        )
     elif direction == "variable_accesses":
         if not variable_name:
             return "Error: variable_name is required for variable_accesses direction"
-        return "\n".join(safe_get("dataflow/find_variable_accesses", {
-            "functionAddress": function_address,
-            "variableName": variable_name
-        }))
+        return "\n".join(
+            safe_get(
+                "dataflow/find_variable_accesses",
+                {"functionAddress": function_address, "variableName": variable_name},
+            )
+        )
     else:
         return f"Error: Invalid direction '{direction}'. Must be 'backward', 'forward', or 'variable_accesses'"
 
 
 @mcp.tool()
-def search_constants_consolidated(mode: str = "specific", value: str = "", min_value: str = "",
-                    max_value: str = "", max_results: int = 500, include_small_values: bool = False,
-                    min_value_filter: str = "", top_n: int = 50) -> str:
+def search_constants_consolidated(
+    mode: str = "specific",
+    value: str = "",
+    min_value: str = "",
+    max_value: str = "",
+    max_results: int = 500,
+    include_small_values: bool = False,
+    min_value_filter: str = "",
+    top_n: int = 50,
+) -> str:
     """
     Constant value search and analysis tool that replaces: find_constant_uses, find_constants_in_range, list_common_constants
 
@@ -3547,15 +3689,22 @@ def search_constants_consolidated(mode: str = "specific", value: str = "", min_v
     if mode == "specific":
         if not value:
             return "Error: value is required for specific mode"
-        return "\n".join(safe_get("find_constant", {"value": value, "maxResults": max_results}))
+        return "\n".join(
+            safe_get("find_constant", {"value": value, "maxResults": max_results})
+        )
     elif mode == "range":
         if not min_value or not max_value:
             return "Error: min_value and max_value are required for range mode"
-        return "\n".join(safe_get("find_constants_in_range", {
-            "minValue": min_value,
-            "maxValue": max_value,
-            "maxResults": max_results
-        }))
+        return "\n".join(
+            safe_get(
+                "find_constants_in_range",
+                {
+                    "minValue": min_value,
+                    "maxValue": max_value,
+                    "maxResults": max_results,
+                },
+            )
+        )
     elif mode == "common":
         params = {"includeSmallValues": include_small_values, "topN": top_n}
         if min_value_filter:
@@ -3568,10 +3717,18 @@ def search_constants_consolidated(mode: str = "specific", value: str = "", min_v
 
 
 @mcp.tool()
-def manage_strings_consolidated(mode: str = "list", pattern: str = "", search_string: str = "",
-                  filter: str = "", start_index: int = 0, max_count: int = 100,
-                  offset: int = 0, limit: int = 2000, max_results: int = 100,
-                  include_referencing_functions: bool = False) -> str:
+def manage_strings_consolidated(
+    mode: str = "list",
+    pattern: str = "",
+    search_string: str = "",
+    filter: str = "",
+    start_index: int = 0,
+    max_count: int = 100,
+    offset: int = 0,
+    limit: int = 2000,
+    max_results: int = 100,
+    include_referencing_functions: bool = False,
+) -> str:
     """
     String listing, searching, and analysis tool that replaces: list_strings, get_strings,
     search_strings_regex, get_strings_count, get_strings_by_similarity
@@ -3604,25 +3761,39 @@ def manage_strings_consolidated(mode: str = "list", pattern: str = "", search_st
     elif mode == "regex":
         if not pattern:
             return "Error: pattern is required for regex mode"
-        return "\n".join(safe_get("search_strings_regex", {"pattern": pattern, "maxResults": max_results}))
+        return "\n".join(
+            safe_get(
+                "search_strings_regex", {"pattern": pattern, "maxResults": max_results}
+            )
+        )
     elif mode == "count":
         return "\n".join(safe_get("get_strings_count"))
     elif mode == "similarity":
         if not search_string:
             return "Error: search_string is required for similarity mode"
-        return "\n".join(safe_get("strings/get_by_similarity", {
-            "searchString": search_string,
-            "startIndex": start_index,
-            "maxCount": max_count,
-            "includeReferencingFunctions": include_referencing_functions
-        }))
+        return "\n".join(
+            safe_get(
+                "strings/get_by_similarity",
+                {
+                    "searchString": search_string,
+                    "startIndex": start_index,
+                    "maxCount": max_count,
+                    "includeReferencingFunctions": include_referencing_functions,
+                },
+            )
+        )
     else:
         return f"Error: Invalid mode '{mode}'. Must be 'list', 'regex', 'count', or 'similarity'"
 
 
 @mcp.tool()
-def inspect_memory_consolidated(mode: str = "blocks", address: str = "", length: int = 16,
-                  offset: int = 0, limit: int = 100) -> str:
+def inspect_memory_consolidated(
+    mode: str = "blocks",
+    address: str = "",
+    length: int = 16,
+    offset: int = 0,
+    limit: int = 100,
+) -> str:
     """
     Memory and data inspection tool that replaces: get_memory_blocks, read_memory,
     get_data_at_address, list_data_items, list_segments
@@ -3648,7 +3819,9 @@ def inspect_memory_consolidated(mode: str = "blocks", address: str = "", length:
     elif mode == "read":
         if not address:
             return "Error: address is required for read mode"
-        return "\n".join(safe_get("read_memory", {"address": address, "length": length}))
+        return "\n".join(
+            safe_get("read_memory", {"address": address, "length": length})
+        )
     elif mode == "data_at":
         if not address:
             return "Error: address is required for data_at mode"
@@ -3662,9 +3835,16 @@ def inspect_memory_consolidated(mode: str = "blocks", address: str = "", length:
 
 
 @mcp.tool()
-def manage_bookmarks_consolidated(action: str = "get", address: str = "", address_or_symbol: str = "",
-                    type: str = "", category: str = "", comment: str = "",
-                    search_text: str = "", max_results: int = 100) -> str:
+def manage_bookmarks_consolidated(
+    action: str = "get",
+    address: str = "",
+    address_or_symbol: str = "",
+    type: str = "",
+    category: str = "",
+    comment: str = "",
+    search_text: str = "",
+    max_results: int = 100,
+) -> str:
     """
     Bookmark management tool that replaces: set_bookmark, get_bookmarks, search_bookmarks,
     remove_bookmark, list_bookmark_categories
@@ -3691,12 +3871,15 @@ def manage_bookmarks_consolidated(action: str = "get", address: str = "", addres
     if action == "set":
         if not address or not type or not category or not comment:
             return "Error: address, type, category, and comment are required for set action"
-        return safe_post("set_bookmark", {
-            "address": address,
-            "type": type,
-            "category": category,
-            "comment": comment
-        })
+        return safe_post(
+            "set_bookmark",
+            {
+                "address": address,
+                "type": type,
+                "category": category,
+                "comment": comment,
+            },
+        )
     elif action == "get":
         params = {}
         if address:
@@ -3707,10 +3890,12 @@ def manage_bookmarks_consolidated(action: str = "get", address: str = "", addres
     elif action == "search":
         if not search_text:
             return "Error: search_text is required for search action"
-        return "\n".join(safe_get("search_bookmarks", {
-            "searchText": search_text,
-            "maxResults": max_results
-        }))
+        return "\n".join(
+            safe_get(
+                "search_bookmarks",
+                {"searchText": search_text, "maxResults": max_results},
+            )
+        )
     elif action == "remove":
         addr = address_or_symbol or address
         if not addr or not type:
@@ -3727,12 +3912,24 @@ def manage_bookmarks_consolidated(action: str = "get", address: str = "", addres
 
 
 @mcp.tool()
-def manage_comments_consolidated(action: str = "get", address: str = "", address_or_symbol: str = "",
-                   function: str = "", function_name_or_address: str = "", line_number: int = 0,
-                   comment: str = "", comment_type: str = "eol", start: str = "", end: str = "",
-                   comment_types: str = "", search_text: str = "", pattern: str = "",
-                   case_sensitive: bool = False, max_results: int = 100,
-                   override_max_functions_limit: bool = False) -> str:
+def manage_comments_consolidated(
+    action: str = "get",
+    address: str = "",
+    address_or_symbol: str = "",
+    function: str = "",
+    function_name_or_address: str = "",
+    line_number: int = 0,
+    comment: str = "",
+    comment_type: str = "eol",
+    start: str = "",
+    end: str = "",
+    comment_types: str = "",
+    search_text: str = "",
+    pattern: str = "",
+    case_sensitive: bool = False,
+    max_results: int = 100,
+    override_max_functions_limit: bool = False,
+) -> str:
     """
     Comment management and search tool that replaces: set_decompiler_comment, set_disassembly_comment,
     set_decompilation_comment, set_comment, get_comments, remove_comment, search_comments, search_decompilation
@@ -3770,22 +3967,28 @@ def manage_comments_consolidated(action: str = "get", address: str = "", address
             func = function_name_or_address or function
             if not func:
                 return "Error: function_name_or_address or function is required for decompilation line comments"
-            return safe_post("decompiler/set_decompilation_comment", {
-                "functionNameOrAddress": func,
-                "lineNumber": line_number,
-                "comment": comment,
-                "commentType": comment_type
-            })
+            return safe_post(
+                "decompiler/set_decompilation_comment",
+                {
+                    "functionNameOrAddress": func,
+                    "lineNumber": line_number,
+                    "comment": comment,
+                    "commentType": comment_type,
+                },
+            )
         else:
             # Regular address comment
             addr = address_or_symbol or address
             if not addr or not comment:
                 return "Error: address_or_symbol/address and comment are required for set action"
-            return safe_post("comments/set", {
-                "addressOrSymbol": addr,
-                "comment": comment,
-                "commentType": comment_type
-            })
+            return safe_post(
+                "comments/set",
+                {
+                    "addressOrSymbol": addr,
+                    "comment": comment,
+                    "commentType": comment_type,
+                },
+            )
     elif action == "get":
         params = {}
         addr = address_or_symbol or address
@@ -3802,17 +4005,16 @@ def manage_comments_consolidated(action: str = "get", address: str = "", address
         addr = address_or_symbol or address
         if not addr:
             return "Error: address_or_symbol or address is required for remove action"
-        return safe_post("comments/remove", {
-            "addressOrSymbol": addr,
-            "commentType": comment_type
-        })
+        return safe_post(
+            "comments/remove", {"addressOrSymbol": addr, "commentType": comment_type}
+        )
     elif action == "search":
         if not search_text:
             return "Error: search_text is required for search action"
         params = {
             "searchText": search_text,
             "caseSensitive": case_sensitive,
-            "maxResults": max_results
+            "maxResults": max_results,
         }
         if comment_types:
             params["commentTypes"] = comment_types
@@ -3820,19 +4022,28 @@ def manage_comments_consolidated(action: str = "get", address: str = "", address
     elif action == "search_decomp":
         if not pattern:
             return "Error: pattern is required for search_decomp action"
-        return "\n".join(safe_get("decompiler/search", {
-            "pattern": pattern,
-            "caseSensitive": case_sensitive,
-            "maxResults": max_results,
-            "overrideMaxFunctionsLimit": override_max_functions_limit
-        }))
+        return "\n".join(
+            safe_get(
+                "decompiler/search",
+                {
+                    "pattern": pattern,
+                    "caseSensitive": case_sensitive,
+                    "maxResults": max_results,
+                    "overrideMaxFunctionsLimit": override_max_functions_limit,
+                },
+            )
+        )
     else:
         return f"Error: Invalid action '{action}'. Must be 'set', 'get', 'remove', 'search', or 'search_decomp'"
 
 
 @mcp.tool()
-def analyze_vtables_consolidated(mode: str = "analyze", vtable_address: str = "", function_address: str = "",
-                   max_entries: int = 200) -> str:
+def analyze_vtables_consolidated(
+    mode: str = "analyze",
+    vtable_address: str = "",
+    function_address: str = "",
+    max_entries: int = 200,
+) -> str:
     """
     Virtual function table analysis tool that replaces: analyze_vtable, find_vtable_callers, find_vtables_containing_function
 
@@ -3852,28 +4063,46 @@ def analyze_vtables_consolidated(mode: str = "analyze", vtable_address: str = ""
     if mode == "analyze":
         if not vtable_address:
             return "Error: vtable_address is required for analyze mode"
-        return "\n".join(safe_get("analyze_vtable", {
-            "vtableAddress": vtable_address,
-            "maxEntries": max_entries
-        }))
+        return "\n".join(
+            safe_get(
+                "analyze_vtable",
+                {"vtableAddress": vtable_address, "maxEntries": max_entries},
+            )
+        )
     elif mode == "callers":
         if not function_address:
             return "Error: function_address is required for callers mode"
-        return "\n".join(safe_get("find_vtable_callers", {"functionAddress": function_address}))
+        return "\n".join(
+            safe_get("find_vtable_callers", {"functionAddress": function_address})
+        )
     elif mode == "containing":
         if not function_address:
             return "Error: function_address is required for containing mode"
-        return "\n".join(safe_get("vtable/find_containing_function", {"functionAddress": function_address}))
+        return "\n".join(
+            safe_get(
+                "vtable/find_containing_function", {"functionAddress": function_address}
+            )
+        )
     else:
         return f"Error: Invalid mode '{mode}'. Must be 'analyze', 'callers', or 'containing'"
 
 
 @mcp.tool()
-def manage_symbols_consolidated(mode: str = "symbols", address: str = "", label_name: str = "",
-                  new_name: str = "", library_filter: str = "", max_results: int = 500,
-                  start_index: int = 0, offset: int = 0, limit: int = 100,
-                  group_by_library: bool = True, include_external: bool = False,
-                  max_count: int = 200, filter_default_names: bool = True) -> str:
+def manage_symbols_consolidated(
+    mode: str = "symbols",
+    address: str = "",
+    label_name: str = "",
+    new_name: str = "",
+    library_filter: str = "",
+    max_results: int = 500,
+    start_index: int = 0,
+    offset: int = 0,
+    limit: int = 100,
+    group_by_library: bool = True,
+    include_external: bool = False,
+    max_count: int = 200,
+    filter_default_names: bool = True,
+) -> str:
     """
     Symbol and label management tool that replaces: list_classes, list_namespaces, list_imports,
     list_exports, create_label, get_symbols, get_symbols_count, rename_data
@@ -3906,39 +4135,60 @@ def manage_symbols_consolidated(mode: str = "symbols", address: str = "", label_
         - When mode='rename_data': Success or failure message
     """
     if mode == "classes":
-        return "\n".join(safe_get("classes", {"offset": offset or start_index, "limit": limit or max_count}))
+        return "\n".join(
+            safe_get(
+                "classes",
+                {"offset": offset or start_index, "limit": limit or max_count},
+            )
+        )
     elif mode == "namespaces":
-        return "\n".join(safe_get("namespaces", {"offset": offset or start_index, "limit": limit or max_count}))
+        return "\n".join(
+            safe_get(
+                "namespaces",
+                {"offset": offset or start_index, "limit": limit or max_count},
+            )
+        )
     elif mode == "imports":
         params = {
             "maxResults": max_results,
             "startIndex": start_index,
-            "groupByLibrary": group_by_library
+            "groupByLibrary": group_by_library,
         }
         if library_filter:
             params["libraryFilter"] = library_filter
         return "\n".join(safe_get("imports/list", params))
     elif mode == "exports":
-        return "\n".join(safe_get("exports/list", {
-            "maxResults": max_results,
-            "startIndex": start_index
-        }))
+        return "\n".join(
+            safe_get(
+                "exports/list", {"maxResults": max_results, "startIndex": start_index}
+            )
+        )
     elif mode == "create_label":
         if not address or not label_name:
             return "Error: address and label_name are required for create_label mode"
         return safe_post("create_label", {"address": address, "labelName": label_name})
     elif mode == "symbols":
-        return "\n".join(safe_get("symbols/get", {
-            "includeExternal": include_external,
-            "startIndex": start_index,
-            "maxCount": max_count,
-            "filterDefaultNames": filter_default_names
-        }))
+        return "\n".join(
+            safe_get(
+                "symbols/get",
+                {
+                    "includeExternal": include_external,
+                    "startIndex": start_index,
+                    "maxCount": max_count,
+                    "filterDefaultNames": filter_default_names,
+                },
+            )
+        )
     elif mode == "count":
-        return "\n".join(safe_get("symbols/get_count", {
-            "includeExternal": include_external,
-            "filterDefaultNames": filter_default_names
-        }))
+        return "\n".join(
+            safe_get(
+                "symbols/get_count",
+                {
+                    "includeExternal": include_external,
+                    "filterDefaultNames": filter_default_names,
+                },
+            )
+        )
     elif mode == "rename_data":
         if not address or not new_name:
             return "Error: address and new_name are required for rename_data mode"
@@ -3948,13 +4198,31 @@ def manage_symbols_consolidated(mode: str = "symbols", address: str = "", label_
 
 
 @mcp.tool()
-def manage_structures_consolidated(action: str = "list", c_definition: str = "", header_content: str = "",
-                     structure_name: str = "", name: str = "", size: int = 0, type: str = "structure",
-                     category: str = "/", packed: bool = False, description: str = "",
-                     field_name: str = "", data_type: str = "", offset: int = None, comment: str = "",
-                     new_data_type: str = "", new_field_name: str = "", new_comment: str = "",
-                     new_length: int = None, address_or_symbol: str = "", clear_existing: bool = True,
-                     force: bool = False, name_filter: str = "", include_built_in: bool = False) -> str:
+def manage_structures_consolidated(
+    action: str = "list",
+    c_definition: str = "",
+    header_content: str = "",
+    structure_name: str = "",
+    name: str = "",
+    size: int = 0,
+    type: str = "structure",
+    category: str = "/",
+    packed: bool = False,
+    description: str = "",
+    field_name: str = "",
+    data_type: str = "",
+    offset: int = None,
+    comment: str = "",
+    new_data_type: str = "",
+    new_field_name: str = "",
+    new_comment: str = "",
+    new_length: int = None,
+    address_or_symbol: str = "",
+    clear_existing: bool = True,
+    force: bool = False,
+    name_filter: str = "",
+    include_built_in: bool = False,
+) -> str:
     """
     Structure management tool that replaces: parse_c_structure, validate_c_structure, create_structure,
     add_structure_field, modify_structure_field, modify_structure_from_c, get_structure_info,
@@ -4003,14 +4271,16 @@ def manage_structures_consolidated(action: str = "list", c_definition: str = "",
     if action == "parse":
         if not c_definition:
             return "Error: c_definition is required for parse action"
-        return safe_post("structures/parse_c_structure", {
-            "cDefinition": c_definition,
-            "category": category
-        })
+        return safe_post(
+            "structures/parse_c_structure",
+            {"cDefinition": c_definition, "category": category},
+        )
     elif action == "validate":
         if not c_definition:
             return "Error: c_definition is required for validate action"
-        return safe_post("structures/validate_c_structure", {"cDefinition": c_definition})
+        return safe_post(
+            "structures/validate_c_structure", {"cDefinition": c_definition}
+        )
     elif action == "create":
         if not name:
             return "Error: name is required for create action"
@@ -4019,7 +4289,7 @@ def manage_structures_consolidated(action: str = "list", c_definition: str = "",
             "size": size,
             "type": type,
             "category": category,
-            "packed": packed
+            "packed": packed,
         }
         if description:
             params["description"] = description
@@ -4030,7 +4300,7 @@ def manage_structures_consolidated(action: str = "list", c_definition: str = "",
         params = {
             "structureName": structure_name,
             "fieldName": field_name,
-            "dataType": data_type
+            "dataType": data_type,
         }
         if offset is not None:
             params["offset"] = offset
@@ -4057,11 +4327,15 @@ def manage_structures_consolidated(action: str = "list", c_definition: str = "",
     elif action == "modify_from_c":
         if not c_definition:
             return "Error: c_definition is required for modify_from_c action"
-        return safe_post("structures/modify_structure_from_c", {"cDefinition": c_definition})
+        return safe_post(
+            "structures/modify_structure_from_c", {"cDefinition": c_definition}
+        )
     elif action == "info":
         if not structure_name:
             return "Error: structure_name is required for info action"
-        return "\n".join(safe_get("structures/get_structure_info", {"structureName": structure_name}))
+        return "\n".join(
+            safe_get("structures/get_structure_info", {"structureName": structure_name})
+        )
     elif action == "list":
         params = {"includeBuiltIn": include_built_in}
         if category:
@@ -4072,33 +4346,43 @@ def manage_structures_consolidated(action: str = "list", c_definition: str = "",
     elif action == "apply":
         if not structure_name or not address_or_symbol:
             return "Error: structure_name and address_or_symbol are required for apply action"
-        return safe_post("structures/apply_structure", {
-            "structureName": structure_name,
-            "addressOrSymbol": address_or_symbol,
-            "clearExisting": clear_existing
-        })
+        return safe_post(
+            "structures/apply_structure",
+            {
+                "structureName": structure_name,
+                "addressOrSymbol": address_or_symbol,
+                "clearExisting": clear_existing,
+            },
+        )
     elif action == "delete":
         if not structure_name:
             return "Error: structure_name is required for delete action"
-        return safe_post("structures/delete_structure", {
-            "structureName": structure_name,
-            "force": force
-        })
+        return safe_post(
+            "structures/delete_structure",
+            {"structureName": structure_name, "force": force},
+        )
     elif action == "parse_header":
         if not header_content:
             return "Error: header_content is required for parse_header action"
-        return safe_post("structures/parse_c_header", {
-            "headerContent": header_content,
-            "category": category
-        })
+        return safe_post(
+            "structures/parse_c_header",
+            {"headerContent": header_content, "category": category},
+        )
     else:
         return f"Error: Invalid action '{action}'. Must be 'parse', 'validate', 'create', 'add_field', 'modify_field', 'modify_from_c', 'info', 'list', 'apply', 'delete', or 'parse_header'"
 
 
 @mcp.tool()
-def manage_data_types_consolidated(action: str = "list", archive_name: str = "", category_path: str = "/",
-                     include_subcategories: bool = False, start_index: int = 0, max_count: int = 100,
-                     data_type_string: str = "", address_or_symbol: str = "") -> str:
+def manage_data_types_consolidated(
+    action: str = "list",
+    archive_name: str = "",
+    category_path: str = "/",
+    include_subcategories: bool = False,
+    start_index: int = 0,
+    max_count: int = 100,
+    data_type_string: str = "",
+    address_or_symbol: str = "",
+) -> str:
     """
     Data type management tool that replaces: get_data_type_archives, get_data_types, get_data_type_by_string, apply_data_type
 
@@ -4125,13 +4409,18 @@ def manage_data_types_consolidated(action: str = "list", archive_name: str = "",
     elif action == "list":
         if not archive_name:
             return "Error: archive_name is required for list action"
-        return "\n".join(safe_get("datatypes/get_types", {
-            "archiveName": archive_name,
-            "categoryPath": category_path,
-            "includeSubcategories": include_subcategories,
-            "startIndex": start_index,
-            "maxCount": max_count
-        }))
+        return "\n".join(
+            safe_get(
+                "datatypes/get_types",
+                {
+                    "archiveName": archive_name,
+                    "categoryPath": category_path,
+                    "includeSubcategories": include_subcategories,
+                    "startIndex": start_index,
+                    "maxCount": max_count,
+                },
+            )
+        )
     elif action == "by_string":
         if not data_type_string:
             return "Error: data_type_string is required for by_string action"
@@ -4142,11 +4431,14 @@ def manage_data_types_consolidated(action: str = "list", archive_name: str = "",
     elif action == "apply":
         if not data_type_string or not address_or_symbol:
             return "Error: data_type_string and address_or_symbol are required for apply action"
-        return safe_post("data/apply_data_type", {
-            "addressOrSymbol": address_or_symbol,
-            "dataTypeString": data_type_string,
-            "archiveName": archive_name
-        })
+        return safe_post(
+            "data/apply_data_type",
+            {
+                "addressOrSymbol": address_or_symbol,
+                "dataTypeString": data_type_string,
+                "archiveName": archive_name,
+            },
+        )
     else:
         return f"Error: Invalid action '{action}'. Must be 'archives', 'list', 'by_string', or 'apply'"
 
@@ -4197,13 +4489,15 @@ def manage_function_tags_consolidated(function: str, mode: str, tags: str = "") 
         - When mode='remove': Success message after removing tags from the function
         - When mode='list': JSON with all tags in the program
     """
-    if mode in ['get', 'set', 'add', 'remove']:
+    if mode in ["get", "set", "add", "remove"]:
         if not function:
             return f"Error: function is required for {mode} mode"
-    if mode in ['add'] and not tags:
+    if mode in ["add"] and not tags:
         return f"Error: tags are required for {mode} mode"
 
-    return safe_post("functions/tags", {"function": function, "mode": mode, "tags": tags})
+    return safe_post(
+        "functions/tags", {"function": function, "mode": mode, "tags": tags}
+    )
 
 
 def main():
