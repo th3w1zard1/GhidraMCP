@@ -4650,7 +4650,7 @@ public class GhidraMCPPlugin extends Plugin {
         }
         visited.add(funcKey);
 
-        Function[] callees = function.getCalledFunctions(TaskMonitor.DUMMY);
+        Function[] callees = function.getCalledFunctions(TaskMonitor.DUMMY).toArray(new Function[0]);
         result.append("{\"name\":\"").append(function.getName()).append("\",");
         result.append("\"address\":\"").append(function.getEntryPoint().toString()).append("\",");
         result.append("\"callees\":[");
