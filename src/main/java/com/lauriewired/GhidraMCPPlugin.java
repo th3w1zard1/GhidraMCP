@@ -3949,7 +3949,7 @@ public class GhidraMCPPlugin extends Plugin {
                                 }
                             }
                             if (dataType != null) {
-                                sym.setDataType(dataType);
+                                HighFunctionDBUtil.updateDBVariable(sym, sym.getName(), dataType, SourceType.USER_DEFINED);
                             }
                         }
                     }
@@ -6064,12 +6064,12 @@ public class GhidraMCPPlugin extends Plugin {
 
                     JSONArray fields = new JSONArray();
                     for (int i = 0; i < comp.getNumComponents(); i++) {
-                        DataTypeComponent comp = comp.getComponent(i);
+                        DataTypeComponent comp2 = comp.getComponent(i);
                         JSONObject field = new JSONObject();
-                        field.put("name", comp.getFieldName());
-                        field.put("dataType", comp.getDataType().getName());
-                        field.put("offset", comp.getOffset());
-                        field.put("length", comp.getLength());
+                        field.put("name", comp2.getFieldName());
+                        field.put("dataType", comp2.getDataType().getName());
+                        field.put("offset", comp2.getOffset());
+                        field.put("length", comp2.getLength());
                         fields.put(field);
                     }
                     response.put("fields", fields);
