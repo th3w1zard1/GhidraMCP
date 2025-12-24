@@ -6205,51 +6205,6 @@ public class GhidraMCPPlugin extends Plugin {
         }
     }
 
-    private String manageFunctionTags(String function, String mode, String tags) {
-        Program program = getCurrentProgram();
-        if (program == null) return "No program loaded";
-
-        try {
-            JSONArray result = new JSONArray();
-
-            if ("get".equals(mode) && function != null) {
-                // Get tags for function
-                Function func = getFunction(function);
-
-                if (func != null) {
-                    JSONObject tagsObj = new JSONObject();
-                    tagsObj.put("function", function);
-                    tagsObj.put("tags", new JSONArray()); // Simplified - no tags implemented
-                    result.put(tagsObj);
-                }
-
-            } else if ("set".equals(mode) && function != null && tags != null) {
-                // Set tags for function - simplified
-                return "Function tags set (not fully implemented)";
-
-            } else if ("add".equals(mode) && function != null && tags != null) {
-                // Add tags to function - simplified
-                return "Function tags added (not fully implemented)";
-
-            } else if ("remove".equals(mode) && function != null && tags != null) {
-                // Remove tags from function - simplified
-                return "Function tags removed (not fully implemented)";
-
-            } else if ("list".equals(mode)) {
-                // List all tags - simplified
-                JSONObject tagsObj = new JSONObject();
-                tagsObj.put("tags", new JSONArray());
-                tagsObj.put("message", "Function tags listing not fully implemented");
-                result.put(tagsObj);
-            }
-
-            return result.toString();
-
-        } catch (Exception e) {
-            return "Error managing function tags: " + e.getMessage();
-        }
-    }
-
     @Override
     public void dispose() {
         if (server != null) {
