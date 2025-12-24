@@ -44,7 +44,7 @@ import ghidra.program.model.data.Undefined1DataType;
 import ghidra.program.model.listing.Variable;
 import ghidra.app.decompiler.component.DecompilerUtils;
 import ghidra.app.decompiler.ClangToken;
-import ghidra.framework.options.Options;
+import docking.options.Options;
 import ghidra.app.util.cparser.C.CParser;
 import ghidra.program.model.data.CategoryPath;
 import ghidra.program.model.data.Category;
