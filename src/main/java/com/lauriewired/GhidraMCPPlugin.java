@@ -1,62 +1,71 @@
-package com.lauriewired;
+package com.th3w1zard1;
 
-import ghidra.framework.plugintool.Plugin;
-import ghidra.framework.plugintool.PluginTool;
-import ghidra.program.model.address.Address;
-import ghidra.program.model.address.GlobalNamespace;
-import ghidra.program.model.listing.*;
-import ghidra.program.model.mem.MemoryBlock;
-import ghidra.program.model.symbol.*;
-import ghidra.program.model.symbol.ReferenceManager;
-import ghidra.program.model.symbol.Reference;
-import ghidra.program.model.symbol.ReferenceIterator;
-import ghidra.program.model.symbol.RefType;
-import ghidra.program.model.pcode.HighFunction;
-import ghidra.program.model.pcode.HighSymbol;
-import ghidra.program.model.pcode.LocalSymbolMap;
-import ghidra.program.model.pcode.HighFunctionDBUtil;
-import ghidra.program.model.pcode.HighFunctionDBUtil.ReturnCommitOption;
-import ghidra.app.decompiler.DecompInterface;
-import ghidra.app.decompiler.DecompileResults;
-import ghidra.app.plugin.PluginCategoryNames;
-import ghidra.app.services.CodeViewerService;
-import ghidra.app.services.ProgramManager;
-import ghidra.app.util.PseudoDisassembler;
-import ghidra.app.cmd.function.SetVariableNameCmd;
-import ghidra.program.model.symbol.SourceType;
-import ghidra.program.model.listing.LocalVariableImpl;
-import ghidra.program.model.listing.ParameterImpl;
-import ghidra.util.exception.DuplicateNameException;
-import ghidra.util.exception.InvalidInputException;
-import ghidra.framework.plugintool.PluginInfo;
-import ghidra.framework.plugintool.util.PluginStatus;
-import ghidra.program.util.ProgramLocation;
-import ghidra.util.Msg;
-import ghidra.util.task.ConsoleTaskMonitor;
-import ghidra.util.task.TaskMonitor;
-import ghidra.program.model.pcode.HighVariable;
-import ghidra.program.model.pcode.Varnode;
-import ghidra.program.model.data.DataType;
-import ghidra.program.model.data.DataTypeManager;
-import ghidra.program.model.data.PointerDataType;
-import ghidra.program.model.data.Undefined1DataType;
-import ghidra.program.model.listing.Variable;
-import ghidra.app.decompiler.component.DecompilerUtils;
-import ghidra.app.decompiler.ClangToken;
-import ghidra.framework.options.Options;
-
-import com.sun.net.httpserver.HttpExchange;
-import com.sun.net.httpserver.HttpServer;
-
-import javax.swing.SwingUtilities;
 import java.io.IOException;
 import java.io.OutputStream;
 import java.lang.reflect.InvocationTargetException;
 import java.net.InetSocketAddress;
 import java.net.URLDecoder;
 import java.nio.charset.StandardCharsets;
-import java.util.*;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.Iterator;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.atomic.AtomicBoolean;
+
+import javax.swing.SwingUtilities;
+
+import com.sun.net.httpserver.HttpExchange;
+import com.sun.net.httpserver.HttpServer;
+
+import ghidra.app.decompiler.DecompInterface;
+import ghidra.app.decompiler.DecompileResults;
+import ghidra.app.plugin.PluginCategoryNames;
+import ghidra.app.services.CodeViewerService;
+import ghidra.app.services.ProgramManager;
+import ghidra.framework.options.Options;
+import ghidra.framework.plugintool.Plugin;
+import ghidra.framework.plugintool.PluginInfo;
+import ghidra.framework.plugintool.PluginTool;
+import ghidra.framework.plugintool.util.PluginStatus;
+import ghidra.program.model.address.Address;
+import ghidra.program.model.address.GlobalNamespace;
+import ghidra.program.model.data.DataType;
+import ghidra.program.model.data.DataTypeManager;
+import ghidra.program.model.data.PointerDataType;
+import ghidra.program.model.listing.CommentType;
+import ghidra.program.model.listing.Data;
+import ghidra.program.model.listing.DataIterator;
+import ghidra.program.model.listing.Function;
+import ghidra.program.model.listing.FunctionManager;
+import ghidra.program.model.listing.Instruction;
+import ghidra.program.model.listing.InstructionIterator;
+import ghidra.program.model.listing.Listing;
+import ghidra.program.model.listing.Parameter;
+import ghidra.program.model.listing.Program;
+import ghidra.program.model.listing.VariableStorage;
+import ghidra.program.model.mem.MemoryBlock;
+import ghidra.program.model.pcode.HighFunction;
+import ghidra.program.model.pcode.HighFunctionDBUtil;
+import ghidra.program.model.pcode.HighFunctionDBUtil.ReturnCommitOption;
+import ghidra.program.model.pcode.HighSymbol;
+import ghidra.program.model.pcode.HighVariable;
+import ghidra.program.model.pcode.LocalSymbolMap;
+import ghidra.program.model.symbol.Namespace;
+import ghidra.program.model.symbol.RefType;
+import ghidra.program.model.symbol.Reference;
+import ghidra.program.model.symbol.ReferenceIterator;
+import ghidra.program.model.symbol.ReferenceManager;
+import ghidra.program.model.symbol.SourceType;
+import ghidra.program.model.symbol.Symbol;
+import ghidra.program.model.symbol.SymbolIterator;
+import ghidra.program.model.symbol.SymbolTable;
+import ghidra.program.util.ProgramLocation;
+import ghidra.util.Msg;
+import ghidra.util.task.ConsoleTaskMonitor;
 
 @PluginInfo(
     status = PluginStatus.RELEASED,
@@ -86,6 +95,13 @@ public class GhidraMCPPlugin extends Plugin {
         try {
             startServer();
         }
+        catch (java.net.BindException e) {
+            Options opts = tool.getOptions(OPTION_CATEGORY_NAME);
+            int port = opts.getInt(PORT_OPTION_NAME, DEFAULT_PORT);
+            Msg.error(this, "Failed to start HTTP server: Port " + port + " is already in use. " +
+                    "Please stop the process using port " + port + " or change the port in " +
+                    "Edit -> Tool Options -> GhidraMCP HTTP Server -> Server Port", e);
+        }
         catch (IOException e) {
             Msg.error(this, "Failed to start HTTP server", e);
         }
@@ -108,237 +124,502 @@ public class GhidraMCPPlugin extends Plugin {
 
         // Each listing endpoint uses offset & limit from query params:
         server.createContext("/methods", exchange -> {
-            Map<String, String> qparams = parseQueryParams(exchange);
-            int offset = parseIntOrDefault(qparams.get("offset"), 0);
-            int limit  = parseIntOrDefault(qparams.get("limit"),  100);
-            sendResponse(exchange, getAllFunctionNames(offset, limit));
+            try {
+                Map<String, String> qparams = parseQueryParams(exchange);
+                int offset = parseIntOrDefault(qparams.get("offset"), 0);
+                int limit  = parseIntOrDefault(qparams.get("limit"),  100);
+                sendResponse(exchange, getAllFunctionNames(offset, limit));
+            } catch (Exception e) {
+                Msg.error(this, "Error handling /methods request", e);
+                try {
+                    sendErrorResponse(exchange, 500, "Error: " + e.getMessage());
+                } catch (IOException ioException) {
+                    Msg.error(this, "Failed to send error response", ioException);
+                }
+            }
         });
 
         server.createContext("/classes", exchange -> {
-            Map<String, String> qparams = parseQueryParams(exchange);
-            int offset = parseIntOrDefault(qparams.get("offset"), 0);
-            int limit  = parseIntOrDefault(qparams.get("limit"),  100);
-            sendResponse(exchange, getAllClassNames(offset, limit));
+            try {
+                Map<String, String> qparams = parseQueryParams(exchange);
+                int offset = parseIntOrDefault(qparams.get("offset"), 0);
+                int limit  = parseIntOrDefault(qparams.get("limit"),  100);
+                sendResponse(exchange, getAllClassNames(offset, limit));
+            } catch (Exception e) {
+                Msg.error(this, "Error handling /classes request", e);
+                try {
+                    sendErrorResponse(exchange, 500, "Error: " + e.getMessage());
+                } catch (IOException ioException) {
+                    Msg.error(this, "Failed to send error response", ioException);
+                }
+            }
         });
 
         server.createContext("/decompile", exchange -> {
-            String name = new String(exchange.getRequestBody().readAllBytes(), StandardCharsets.UTF_8);
-            sendResponse(exchange, decompileFunctionByName(name));
+            try {
+                String name = new String(exchange.getRequestBody().readAllBytes(), StandardCharsets.UTF_8);
+                sendResponse(exchange, decompileFunctionByName(name));
+            } catch (Exception e) {
+                Msg.error(this, "Error handling /decompile request", e);
+                try {
+                    sendErrorResponse(exchange, 500, "Error: " + e.getMessage());
+                } catch (IOException ioException) {
+                    Msg.error(this, "Failed to send error response", ioException);
+                }
+            }
         });
 
         server.createContext("/renameFunction", exchange -> {
-            Map<String, String> params = parsePostParams(exchange);
-            String response = renameFunction(params.get("oldName"), params.get("newName"))
-                    ? "Renamed successfully" : "Rename failed";
-            sendResponse(exchange, response);
+            try {
+                Map<String, String> params = parsePostParams(exchange);
+                String response = renameFunction(params.get("oldName"), params.get("newName"))
+                        ? "Renamed successfully" : "Rename failed";
+                sendResponse(exchange, response);
+            } catch (Exception e) {
+                Msg.error(this, "Error handling /renameFunction request", e);
+                try {
+                    sendErrorResponse(exchange, 500, "Error: " + e.getMessage());
+                } catch (IOException ioException) {
+                    Msg.error(this, "Failed to send error response", ioException);
+                }
+            }
         });
 
         server.createContext("/renameData", exchange -> {
-            Map<String, String> params = parsePostParams(exchange);
-            renameDataAtAddress(params.get("address"), params.get("newName"));
-            sendResponse(exchange, "Rename data attempted");
+            try {
+                Map<String, String> params = parsePostParams(exchange);
+                renameDataAtAddress(params.get("address"), params.get("newName"));
+                sendResponse(exchange, "Rename data attempted");
+            } catch (Exception e) {
+                Msg.error(this, "Error handling /renameData request", e);
+                try {
+                    sendErrorResponse(exchange, 500, "Error: " + e.getMessage());
+                } catch (IOException ioException) {
+                    Msg.error(this, "Failed to send error response", ioException);
+                }
+            }
         });
 
         server.createContext("/renameVariable", exchange -> {
-            Map<String, String> params = parsePostParams(exchange);
-            String functionName = params.get("functionName");
-            String oldName = params.get("oldName");
-            String newName = params.get("newName");
-            String result = renameVariableInFunction(functionName, oldName, newName);
-            sendResponse(exchange, result);
+            try {
+                Map<String, String> params = parsePostParams(exchange);
+                String functionName = params.get("functionName");
+                String oldName = params.get("oldName");
+                String newName = params.get("newName");
+                String result = renameVariableInFunction(functionName, oldName, newName);
+                sendResponse(exchange, result);
+            } catch (Exception e) {
+                Msg.error(this, "Error handling /renameVariable request", e);
+                try {
+                    sendErrorResponse(exchange, 500, "Error: " + e.getMessage());
+                } catch (IOException ioException) {
+                    Msg.error(this, "Failed to send error response", ioException);
+                }
+            }
         });
 
         server.createContext("/segments", exchange -> {
-            Map<String, String> qparams = parseQueryParams(exchange);
-            int offset = parseIntOrDefault(qparams.get("offset"), 0);
-            int limit  = parseIntOrDefault(qparams.get("limit"),  100);
-            sendResponse(exchange, listSegments(offset, limit));
+            try {
+                Map<String, String> qparams = parseQueryParams(exchange);
+                int offset = parseIntOrDefault(qparams.get("offset"), 0);
+                int limit  = parseIntOrDefault(qparams.get("limit"),  100);
+                sendResponse(exchange, listSegments(offset, limit));
+            } catch (Exception e) {
+                Msg.error(this, "Error handling /segments request", e);
+                try {
+                    sendErrorResponse(exchange, 500, "Error: " + e.getMessage());
+                } catch (IOException ioException) {
+                    Msg.error(this, "Failed to send error response", ioException);
+                }
+            }
         });
 
         server.createContext("/imports", exchange -> {
-            Map<String, String> qparams = parseQueryParams(exchange);
-            int offset = parseIntOrDefault(qparams.get("offset"), 0);
-            int limit  = parseIntOrDefault(qparams.get("limit"),  100);
-            sendResponse(exchange, listImports(offset, limit));
+            try {
+                Map<String, String> qparams = parseQueryParams(exchange);
+                int offset = parseIntOrDefault(qparams.get("offset"), 0);
+                int limit  = parseIntOrDefault(qparams.get("limit"),  100);
+                sendResponse(exchange, listImports(offset, limit));
+            } catch (Exception e) {
+                Msg.error(this, "Error handling /imports request", e);
+                try {
+                    sendErrorResponse(exchange, 500, "Error: " + e.getMessage());
+                } catch (IOException ioException) {
+                    Msg.error(this, "Failed to send error response", ioException);
+                }
+            }
         });
 
         server.createContext("/exports", exchange -> {
-            Map<String, String> qparams = parseQueryParams(exchange);
-            int offset = parseIntOrDefault(qparams.get("offset"), 0);
-            int limit  = parseIntOrDefault(qparams.get("limit"),  100);
-            sendResponse(exchange, listExports(offset, limit));
+            try {
+                Map<String, String> qparams = parseQueryParams(exchange);
+                int offset = parseIntOrDefault(qparams.get("offset"), 0);
+                int limit  = parseIntOrDefault(qparams.get("limit"),  100);
+                sendResponse(exchange, listExports(offset, limit));
+            } catch (Exception e) {
+                Msg.error(this, "Error handling /exports request", e);
+                try {
+                    sendErrorResponse(exchange, 500, "Error: " + e.getMessage());
+                } catch (IOException ioException) {
+                    Msg.error(this, "Failed to send error response", ioException);
+                }
+            }
         });
 
         server.createContext("/namespaces", exchange -> {
-            Map<String, String> qparams = parseQueryParams(exchange);
-            int offset = parseIntOrDefault(qparams.get("offset"), 0);
-            int limit  = parseIntOrDefault(qparams.get("limit"),  100);
-            sendResponse(exchange, listNamespaces(offset, limit));
+            try {
+                Map<String, String> qparams = parseQueryParams(exchange);
+                int offset = parseIntOrDefault(qparams.get("offset"), 0);
+                int limit  = parseIntOrDefault(qparams.get("limit"),  100);
+                sendResponse(exchange, listNamespaces(offset, limit));
+            } catch (Exception e) {
+                Msg.error(this, "Error handling /namespaces request", e);
+                try {
+                    sendErrorResponse(exchange, 500, "Error: " + e.getMessage());
+                } catch (IOException ioException) {
+                    Msg.error(this, "Failed to send error response", ioException);
+                }
+            }
         });
 
         server.createContext("/data", exchange -> {
-            Map<String, String> qparams = parseQueryParams(exchange);
-            int offset = parseIntOrDefault(qparams.get("offset"), 0);
-            int limit  = parseIntOrDefault(qparams.get("limit"),  100);
-            sendResponse(exchange, listDefinedData(offset, limit));
+            try {
+                Map<String, String> qparams = parseQueryParams(exchange);
+                int offset = parseIntOrDefault(qparams.get("offset"), 0);
+                int limit  = parseIntOrDefault(qparams.get("limit"),  100);
+                sendResponse(exchange, listDefinedData(offset, limit));
+            } catch (Exception e) {
+                Msg.error(this, "Error handling /data request", e);
+                try {
+                    sendErrorResponse(exchange, 500, "Error: " + e.getMessage());
+                } catch (IOException ioException) {
+                    Msg.error(this, "Failed to send error response", ioException);
+                }
+            }
         });
 
         server.createContext("/searchFunctions", exchange -> {
-            Map<String, String> qparams = parseQueryParams(exchange);
-            String searchTerm = qparams.get("query");
-            int offset = parseIntOrDefault(qparams.get("offset"), 0);
-            int limit = parseIntOrDefault(qparams.get("limit"), 100);
-            sendResponse(exchange, searchFunctionsByName(searchTerm, offset, limit));
+            try {
+                Map<String, String> qparams = parseQueryParams(exchange);
+                String searchTerm = qparams.get("query");
+                int offset = parseIntOrDefault(qparams.get("offset"), 0);
+                int limit = parseIntOrDefault(qparams.get("limit"), 100);
+                sendResponse(exchange, searchFunctionsByName(searchTerm, offset, limit));
+            } catch (Exception e) {
+                Msg.error(this, "Error handling /searchFunctions request", e);
+                try {
+                    sendErrorResponse(exchange, 500, "Error: " + e.getMessage());
+                } catch (IOException ioException) {
+                    Msg.error(this, "Failed to send error response", ioException);
+                }
+            }
         });
 
         // New API endpoints based on requirements
-        
+
         server.createContext("/get_function_by_address", exchange -> {
-            Map<String, String> qparams = parseQueryParams(exchange);
-            String address = qparams.get("address");
-            sendResponse(exchange, getFunctionByAddress(address));
+            try {
+                Map<String, String> qparams = parseQueryParams(exchange);
+                String address = qparams.get("address");
+                sendResponse(exchange, getFunctionByAddress(address));
+            } catch (Exception e) {
+                Msg.error(this, "Error handling /get_function_by_address request", e);
+                try {
+                    sendErrorResponse(exchange, 500, "Error: " + e.getMessage());
+                } catch (IOException ioException) {
+                    Msg.error(this, "Failed to send error response", ioException);
+                }
+            }
         });
 
         server.createContext("/get_current_address", exchange -> {
-            sendResponse(exchange, getCurrentAddress());
+            try {
+                sendResponse(exchange, getCurrentAddress());
+            } catch (Exception e) {
+                Msg.error(this, "Error handling /get_current_address request", e);
+                try {
+                    sendErrorResponse(exchange, 500, "Error: " + e.getMessage());
+                } catch (IOException ioException) {
+                    Msg.error(this, "Failed to send error response", ioException);
+                }
+            }
         });
 
         server.createContext("/get_current_function", exchange -> {
-            sendResponse(exchange, getCurrentFunction());
+            try {
+                sendResponse(exchange, getCurrentFunction());
+            } catch (IOException e) {
+                // Connection closed/aborted - can't send error response
+                Msg.error(this, "Error sending response for /get_current_function request (connection closed)", e);
+                try {
+                    exchange.close();
+                } catch (Exception ignored) {
+                }
+            } catch (Exception e) {
+                Msg.error(this, "Error handling /get_current_function request", e);
+                try {
+                    sendErrorResponse(exchange, 500, "Error: " + e.getMessage());
+                } catch (IOException ioException) {
+                    Msg.error(this, "Failed to send error response", ioException);
+                    try {
+                        exchange.close();
+                    } catch (Exception ignored) {
+                    }
+                }
+            }
         });
 
         server.createContext("/list_functions", exchange -> {
-            sendResponse(exchange, listFunctions());
+            try {
+                sendResponse(exchange, listFunctions());
+            } catch (IOException e) {
+                // Connection closed/aborted - can't send error response
+                Msg.error(this, "Error sending response for /list_functions request (connection closed)", e);
+                try {
+                    exchange.close();
+                } catch (Exception ignored) {
+                }
+            } catch (Exception e) {
+                Msg.error(this, "Error handling /list_functions request", e);
+                try {
+                    sendErrorResponse(exchange, 500, "Error: " + e.getMessage());
+                } catch (IOException ioException) {
+                    Msg.error(this, "Failed to send error response", ioException);
+                    try {
+                        exchange.close();
+                    } catch (Exception ignored) {
+                    }
+                }
+            }
         });
 
         server.createContext("/decompile_function", exchange -> {
-            Map<String, String> qparams = parseQueryParams(exchange);
-            String address = qparams.get("address");
-            sendResponse(exchange, decompileFunctionByAddress(address));
+            try {
+                Map<String, String> qparams = parseQueryParams(exchange);
+                String address = qparams.get("address");
+                sendResponse(exchange, decompileFunctionByAddress(address));
+            } catch (Exception e) {
+                Msg.error(this, "Error handling /decompile_function request", e);
+                try {
+                    sendErrorResponse(exchange, 500, "Error: " + e.getMessage());
+                } catch (IOException ioException) {
+                    Msg.error(this, "Failed to send error response", ioException);
+                }
+            }
         });
 
         server.createContext("/disassemble_function", exchange -> {
-            Map<String, String> qparams = parseQueryParams(exchange);
-            String address = qparams.get("address");
-            sendResponse(exchange, disassembleFunction(address));
+            try {
+                Map<String, String> qparams = parseQueryParams(exchange);
+                String address = qparams.get("address");
+                sendResponse(exchange, disassembleFunction(address));
+            } catch (Exception e) {
+                Msg.error(this, "Error handling /disassemble_function request", e);
+                try {
+                    sendErrorResponse(exchange, 500, "Error: " + e.getMessage());
+                } catch (IOException ioException) {
+                    Msg.error(this, "Failed to send error response", ioException);
+                }
+            }
         });
 
         server.createContext("/set_decompiler_comment", exchange -> {
-            Map<String, String> params = parsePostParams(exchange);
-            String address = params.get("address");
-            String comment = params.get("comment");
-            boolean success = setDecompilerComment(address, comment);
-            sendResponse(exchange, success ? "Comment set successfully" : "Failed to set comment");
+            try {
+                Map<String, String> params = parsePostParams(exchange);
+                String address = params.get("address");
+                String comment = params.get("comment");
+                boolean success = setDecompilerComment(address, comment);
+                sendResponse(exchange, success ? "Comment set successfully" : "Failed to set comment");
+            } catch (Exception e) {
+                Msg.error(this, "Error handling /set_decompiler_comment request", e);
+                try {
+                    sendErrorResponse(exchange, 500, "Error: " + e.getMessage());
+                } catch (IOException ioException) {
+                    Msg.error(this, "Failed to send error response", ioException);
+                }
+            }
         });
 
         server.createContext("/set_disassembly_comment", exchange -> {
-            Map<String, String> params = parsePostParams(exchange);
-            String address = params.get("address");
-            String comment = params.get("comment");
-            boolean success = setDisassemblyComment(address, comment);
-            sendResponse(exchange, success ? "Comment set successfully" : "Failed to set comment");
+            try {
+                Map<String, String> params = parsePostParams(exchange);
+                String address = params.get("address");
+                String comment = params.get("comment");
+                boolean success = setDisassemblyComment(address, comment);
+                sendResponse(exchange, success ? "Comment set successfully" : "Failed to set comment");
+            } catch (Exception e) {
+                Msg.error(this, "Error handling /set_disassembly_comment request", e);
+                try {
+                    sendErrorResponse(exchange, 500, "Error: " + e.getMessage());
+                } catch (IOException ioException) {
+                    Msg.error(this, "Failed to send error response", ioException);
+                }
+            }
         });
 
         server.createContext("/rename_function_by_address", exchange -> {
-            Map<String, String> params = parsePostParams(exchange);
-            String functionAddress = params.get("function_address");
-            String newName = params.get("new_name");
-            boolean success = renameFunctionByAddress(functionAddress, newName);
-            sendResponse(exchange, success ? "Function renamed successfully" : "Failed to rename function");
+            try {
+                Map<String, String> params = parsePostParams(exchange);
+                String functionAddress = params.get("function_address");
+                String newName = params.get("new_name");
+                boolean success = renameFunctionByAddress(functionAddress, newName);
+                sendResponse(exchange, success ? "Function renamed successfully" : "Failed to rename function");
+            } catch (Exception e) {
+                Msg.error(this, "Error handling /rename_function_by_address request", e);
+                try {
+                    sendErrorResponse(exchange, 500, "Error: " + e.getMessage());
+                } catch (IOException ioException) {
+                    Msg.error(this, "Failed to send error response", ioException);
+                }
+            }
         });
 
         server.createContext("/set_function_prototype", exchange -> {
-            Map<String, String> params = parsePostParams(exchange);
-            String functionAddress = params.get("function_address");
-            String prototype = params.get("prototype");
+            try {
+                Map<String, String> params = parsePostParams(exchange);
+                String functionAddress = params.get("function_address");
+                String prototype = params.get("prototype");
 
-            // Call the set prototype function and get detailed result
-            PrototypeResult result = setFunctionPrototype(functionAddress, prototype);
+                // Call the set prototype function and get detailed result
+                PrototypeResult result = setFunctionPrototype(functionAddress, prototype);
 
-            if (result.isSuccess()) {
-                // Even with successful operations, include any warning messages for debugging
-                String successMsg = "Function prototype set successfully";
-                if (!result.getErrorMessage().isEmpty()) {
-                    successMsg += "\n\nWarnings/Debug Info:\n" + result.getErrorMessage();
+                if (result.isSuccess()) {
+                    // Even with successful operations, include any warning messages for debugging
+                    String successMsg = "Function prototype set successfully";
+                    if (!result.getErrorMessage().isEmpty()) {
+                        successMsg += "\n\nWarnings/Debug Info:\n" + result.getErrorMessage();
+                    }
+                    sendResponse(exchange, successMsg);
+                } else {
+                    // Return the detailed error message to the client
+                    sendResponse(exchange, "Failed to set function prototype: " + result.getErrorMessage());
                 }
-                sendResponse(exchange, successMsg);
-            } else {
-                // Return the detailed error message to the client
-                sendResponse(exchange, "Failed to set function prototype: " + result.getErrorMessage());
+            } catch (Exception e) {
+                Msg.error(this, "Error handling /set_function_prototype request", e);
+                try {
+                    sendErrorResponse(exchange, 500, "Error: " + e.getMessage());
+                } catch (IOException ioException) {
+                    Msg.error(this, "Failed to send error response", ioException);
+                }
             }
         });
 
         server.createContext("/set_local_variable_type", exchange -> {
-            Map<String, String> params = parsePostParams(exchange);
-            String functionAddress = params.get("function_address");
-            String variableName = params.get("variable_name");
-            String newType = params.get("new_type");
+            try {
+                Map<String, String> params = parsePostParams(exchange);
+                String functionAddress = params.get("function_address");
+                String variableName = params.get("variable_name");
+                String newType = params.get("new_type");
 
-            // Capture detailed information about setting the type
-            StringBuilder responseMsg = new StringBuilder();
-            responseMsg.append("Setting variable type: ").append(variableName)
-                      .append(" to ").append(newType)
-                      .append(" in function at ").append(functionAddress).append("\n\n");
+                // Capture detailed information about setting the type
+                StringBuilder responseMsg = new StringBuilder();
+                responseMsg.append("Setting variable type: ").append(variableName)
+                          .append(" to ").append(newType)
+                          .append(" in function at ").append(functionAddress).append("\n\n");
 
-            // Attempt to find the data type in various categories
-            Program program = getCurrentProgram();
-            if (program != null) {
-                DataTypeManager dtm = program.getDataTypeManager();
-                DataType directType = findDataTypeByNameInAllCategories(dtm, newType);
-                if (directType != null) {
-                    responseMsg.append("Found type: ").append(directType.getPathName()).append("\n");
-                } else if (newType.startsWith("P") && newType.length() > 1) {
-                    String baseTypeName = newType.substring(1);
-                    DataType baseType = findDataTypeByNameInAllCategories(dtm, baseTypeName);
-                    if (baseType != null) {
-                        responseMsg.append("Found base type for pointer: ").append(baseType.getPathName()).append("\n");
+                // Attempt to find the data type in various categories
+                Program program = getCurrentProgram();
+                if (program != null) {
+                    DataTypeManager dtm = program.getDataTypeManager();
+                    DataType directType = findDataTypeByNameInAllCategories(dtm, newType);
+                    if (directType != null) {
+                        responseMsg.append("Found type: ").append(directType.getPathName()).append("\n");
+                    } else if (newType.startsWith("P") && newType.length() > 1) {
+                        String baseTypeName = newType.substring(1);
+                        DataType baseType = findDataTypeByNameInAllCategories(dtm, baseTypeName);
+                        if (baseType != null) {
+                            responseMsg.append("Found base type for pointer: ").append(baseType.getPathName()).append("\n");
+                        } else {
+                            responseMsg.append("Base type not found for pointer: ").append(baseTypeName).append("\n");
+                        }
                     } else {
-                        responseMsg.append("Base type not found for pointer: ").append(baseTypeName).append("\n");
+                        responseMsg.append("Type not found directly: ").append(newType).append("\n");
                     }
-                } else {
-                    responseMsg.append("Type not found directly: ").append(newType).append("\n");
+                }
+
+                // Try to set the type
+                boolean success = setLocalVariableType(functionAddress, variableName, newType);
+
+                String successMsg = success ? "Variable type set successfully" : "Failed to set variable type";
+                responseMsg.append("\nResult: ").append(successMsg);
+
+                sendResponse(exchange, responseMsg.toString());
+            } catch (Exception e) {
+                Msg.error(this, "Error handling /set_local_variable_type request", e);
+                try {
+                    sendErrorResponse(exchange, 500, "Error: " + e.getMessage());
+                } catch (IOException ioException) {
+                    Msg.error(this, "Failed to send error response", ioException);
                 }
             }
-
-            // Try to set the type
-            boolean success = setLocalVariableType(functionAddress, variableName, newType);
-
-            String successMsg = success ? "Variable type set successfully" : "Failed to set variable type";
-            responseMsg.append("\nResult: ").append(successMsg);
-
-            sendResponse(exchange, responseMsg.toString());
         });
 
         server.createContext("/xrefs_to", exchange -> {
-            Map<String, String> qparams = parseQueryParams(exchange);
-            String address = qparams.get("address");
-            int offset = parseIntOrDefault(qparams.get("offset"), 0);
-            int limit = parseIntOrDefault(qparams.get("limit"), 100);
-            sendResponse(exchange, getXrefsTo(address, offset, limit));
+            try {
+                Map<String, String> qparams = parseQueryParams(exchange);
+                String address = qparams.get("address");
+                int offset = parseIntOrDefault(qparams.get("offset"), 0);
+                int limit = parseIntOrDefault(qparams.get("limit"), 100);
+                sendResponse(exchange, getXrefsTo(address, offset, limit));
+            } catch (Exception e) {
+                Msg.error(this, "Error handling /xrefs_to request", e);
+                try {
+                    sendErrorResponse(exchange, 500, "Error: " + e.getMessage());
+                } catch (IOException ioException) {
+                    Msg.error(this, "Failed to send error response", ioException);
+                }
+            }
         });
 
         server.createContext("/xrefs_from", exchange -> {
-            Map<String, String> qparams = parseQueryParams(exchange);
-            String address = qparams.get("address");
-            int offset = parseIntOrDefault(qparams.get("offset"), 0);
-            int limit = parseIntOrDefault(qparams.get("limit"), 100);
-            sendResponse(exchange, getXrefsFrom(address, offset, limit));
+            try {
+                Map<String, String> qparams = parseQueryParams(exchange);
+                String address = qparams.get("address");
+                int offset = parseIntOrDefault(qparams.get("offset"), 0);
+                int limit = parseIntOrDefault(qparams.get("limit"), 100);
+                sendResponse(exchange, getXrefsFrom(address, offset, limit));
+            } catch (Exception e) {
+                Msg.error(this, "Error handling /xrefs_from request", e);
+                try {
+                    sendErrorResponse(exchange, 500, "Error: " + e.getMessage());
+                } catch (IOException ioException) {
+                    Msg.error(this, "Failed to send error response", ioException);
+                }
+            }
         });
 
         server.createContext("/function_xrefs", exchange -> {
-            Map<String, String> qparams = parseQueryParams(exchange);
-            String name = qparams.get("name");
-            int offset = parseIntOrDefault(qparams.get("offset"), 0);
-            int limit = parseIntOrDefault(qparams.get("limit"), 100);
-            sendResponse(exchange, getFunctionXrefs(name, offset, limit));
+            try {
+                Map<String, String> qparams = parseQueryParams(exchange);
+                String name = qparams.get("name");
+                int offset = parseIntOrDefault(qparams.get("offset"), 0);
+                int limit = parseIntOrDefault(qparams.get("limit"), 100);
+                sendResponse(exchange, getFunctionXrefs(name, offset, limit));
+            } catch (Exception e) {
+                Msg.error(this, "Error handling /function_xrefs request", e);
+                try {
+                    sendErrorResponse(exchange, 500, "Error: " + e.getMessage());
+                } catch (IOException ioException) {
+                    Msg.error(this, "Failed to send error response", ioException);
+                }
+            }
         });
 
         server.createContext("/strings", exchange -> {
-            Map<String, String> qparams = parseQueryParams(exchange);
-            int offset = parseIntOrDefault(qparams.get("offset"), 0);
-            int limit = parseIntOrDefault(qparams.get("limit"), 100);
-            String filter = qparams.get("filter");
-            sendResponse(exchange, listDefinedStrings(offset, limit, filter));
+            try {
+                Map<String, String> qparams = parseQueryParams(exchange);
+                int offset = parseIntOrDefault(qparams.get("offset"), 0);
+                int limit = parseIntOrDefault(qparams.get("limit"), 100);
+                String filter = qparams.get("filter");
+                sendResponse(exchange, listDefinedStrings(offset, limit, filter));
+            } catch (Exception e) {
+                Msg.error(this, "Error handling /strings request", e);
+                try {
+                    sendErrorResponse(exchange, 500, "Error: " + e.getMessage());
+                } catch (IOException ioException) {
+                    Msg.error(this, "Failed to send error response", ioException);
+                }
+            }
         });
 
         server.setExecutor(null);
@@ -468,7 +749,7 @@ public class GhidraMCPPlugin extends Plugin {
         Program program = getCurrentProgram();
         if (program == null) return "No program loaded";
         if (searchTerm == null || searchTerm.isEmpty()) return "Search term is required";
-    
+
         List<String> matches = new ArrayList<>();
         for (Function func : program.getFunctionManager().getFunctions(true)) {
             String name = func.getName();
@@ -477,14 +758,14 @@ public class GhidraMCPPlugin extends Plugin {
                 matches.add(String.format("%s @ %s", name, func.getEntryPoint()));
             }
         }
-    
+
         Collections.sort(matches);
-    
+
         if (matches.isEmpty()) {
             return "No functions matching '" + searchTerm + "'";
         }
         return paginateList(matches, offset, limit);
-    }    
+    }
 
     // ----------------------------------------------------------------------------------
     // Logic for rename, decompile, etc.
@@ -613,7 +894,7 @@ public class GhidraMCPPlugin extends Plugin {
         while (symbols.hasNext()) {
             HighSymbol symbol = symbols.next();
             String symbolName = symbol.getName();
-            
+
             if (symbolName.equals(oldVarName)) {
                 highSymbol = symbol;
             }
@@ -633,7 +914,7 @@ public class GhidraMCPPlugin extends Plugin {
         AtomicBoolean successFlag = new AtomicBoolean(false);
 
         try {
-            SwingUtilities.invokeAndWait(() -> {           
+            SwingUtilities.invokeAndWait(() -> {
                 int tx = program.startTransaction("Rename variable");
                 try {
                     if (commitRequired) {
@@ -771,8 +1052,8 @@ public class GhidraMCPPlugin extends Plugin {
 
         StringBuilder result = new StringBuilder();
         for (Function func : program.getFunctionManager().getFunctions(true)) {
-            result.append(String.format("%s at %s\n", 
-                func.getName(), 
+            result.append(String.format("%s at %s\n",
+                func.getName(),
                 func.getEntryPoint()));
         }
 
@@ -808,8 +1089,8 @@ public class GhidraMCPPlugin extends Plugin {
             decomp.openProgram(program);
             DecompileResults result = decomp.decompileFunction(func, 30, new ConsoleTaskMonitor());
 
-            return (result != null && result.decompileCompleted()) 
-                ? result.getDecompiledFunction().getC() 
+            return (result != null && result.decompileCompleted())
+                ? result.getDecompiledFunction().getC()
                 : "Decompilation failed";
         } catch (Exception e) {
             return "Error decompiling function: " + e.getMessage();
@@ -840,11 +1121,11 @@ public class GhidraMCPPlugin extends Plugin {
                 if (instr.getAddress().compareTo(end) > 0) {
                     break; // Stop if we've gone past the end of the function
                 }
-                String comment = listing.getComment(CodeUnit.EOL_COMMENT, instr.getAddress());
+                String comment = listing.getComment(CommentType.EOL, instr.getAddress());
                 comment = (comment != null) ? "; " + comment : "";
 
-                result.append(String.format("%s: %s %s\n", 
-                    instr.getAddress(), 
+                result.append(String.format("%s: %s %s\n",
+                    instr.getAddress(),
                     instr.toString(),
                     comment));
             }
@@ -853,12 +1134,12 @@ public class GhidraMCPPlugin extends Plugin {
         } catch (Exception e) {
             return "Error disassembling function: " + e.getMessage();
         }
-    }    
+    }
 
     /**
-     * Set a comment using the specified comment type (PRE_COMMENT or EOL_COMMENT)
+     * Set a comment using the specified comment type (PRE or EOL)
      */
-    private boolean setCommentAtAddress(String addressStr, String comment, int commentType, String transactionName) {
+    private boolean setCommentAtAddress(String addressStr, String comment, CommentType commentType, String transactionName) {
         Program program = getCurrentProgram();
         if (program == null) return false;
         if (addressStr == null || addressStr.isEmpty() || comment == null) return false;
@@ -889,14 +1170,14 @@ public class GhidraMCPPlugin extends Plugin {
      * Set a comment for a given address in the function pseudocode
      */
     private boolean setDecompilerComment(String addressStr, String comment) {
-        return setCommentAtAddress(addressStr, comment, CodeUnit.PRE_COMMENT, "Set decompiler comment");
+        return setCommentAtAddress(addressStr, comment, CommentType.PRE, "Set decompiler comment");
     }
 
     /**
      * Set a comment for a given address in the function disassembly
      */
     private boolean setDisassemblyComment(String addressStr, String comment) {
-        return setCommentAtAddress(addressStr, comment, CodeUnit.EOL_COMMENT, "Set disassembly comment");
+        return setCommentAtAddress(addressStr, comment, CommentType.EOL, "Set disassembly comment");
     }
 
     /**
@@ -926,7 +1207,7 @@ public class GhidraMCPPlugin extends Plugin {
     private boolean renameFunctionByAddress(String functionAddrStr, String newName) {
         Program program = getCurrentProgram();
         if (program == null) return false;
-        if (functionAddrStr == null || functionAddrStr.isEmpty() || 
+        if (functionAddrStr == null || functionAddrStr.isEmpty() ||
             newName == null || newName.isEmpty()) {
             return false;
         }
@@ -985,7 +1266,7 @@ public class GhidraMCPPlugin extends Plugin {
         final AtomicBoolean success = new AtomicBoolean(false);
 
         try {
-            SwingUtilities.invokeAndWait(() -> 
+            SwingUtilities.invokeAndWait(() ->
                 applyFunctionPrototype(program, functionAddrStr, prototype, success, errorMessage));
         } catch (InterruptedException | InvocationTargetException e) {
             String msg = "Failed to set function prototype on Swing thread: " + e.getMessage();
@@ -999,7 +1280,7 @@ public class GhidraMCPPlugin extends Plugin {
     /**
      * Helper method that applies the function prototype within a transaction
      */
-    private void applyFunctionPrototype(Program program, String functionAddrStr, String prototype, 
+    private void applyFunctionPrototype(Program program, String functionAddrStr, String prototype,
                                        AtomicBoolean success, StringBuilder errorMessage) {
         try {
             // Get the address and function
@@ -1035,8 +1316,8 @@ public class GhidraMCPPlugin extends Plugin {
         int txComment = program.startTransaction("Add prototype comment");
         try {
             program.getListing().setComment(
-                func.getEntryPoint(), 
-                CodeUnit.PLATE_COMMENT, 
+                func.getEntryPoint(),
+                CommentType.POST,
                 "Setting prototype: " + prototype
             );
         } finally {
@@ -1056,11 +1337,11 @@ public class GhidraMCPPlugin extends Plugin {
             DataTypeManager dtm = program.getDataTypeManager();
 
             // Get data type manager service
-            ghidra.app.services.DataTypeManagerService dtms = 
+            ghidra.app.services.DataTypeManagerService dtms =
                 tool.getService(ghidra.app.services.DataTypeManagerService.class);
 
             // Create function signature parser
-            ghidra.app.util.parser.FunctionSignatureParser parser = 
+            ghidra.app.util.parser.FunctionSignatureParser parser =
                 new ghidra.app.util.parser.FunctionSignatureParser(dtm, dtms);
 
             // Parse the prototype into a function signature
@@ -1074,7 +1355,7 @@ public class GhidraMCPPlugin extends Plugin {
             }
 
             // Create and apply the command
-            ghidra.app.cmd.function.ApplyFunctionSignatureCmd cmd = 
+            ghidra.app.cmd.function.ApplyFunctionSignatureCmd cmd =
                 new ghidra.app.cmd.function.ApplyFunctionSignatureCmd(
                     addr, sig, SourceType.USER_DEFINED);
 
@@ -1105,7 +1386,7 @@ public class GhidraMCPPlugin extends Plugin {
         // Input validation
         Program program = getCurrentProgram();
         if (program == null) return false;
-        if (functionAddrStr == null || functionAddrStr.isEmpty() || 
+        if (functionAddrStr == null || functionAddrStr.isEmpty() ||
             variableName == null || variableName.isEmpty() ||
             newType == null || newType.isEmpty()) {
             return false;
@@ -1114,7 +1395,7 @@ public class GhidraMCPPlugin extends Plugin {
         AtomicBoolean success = new AtomicBoolean(false);
 
         try {
-            SwingUtilities.invokeAndWait(() -> 
+            SwingUtilities.invokeAndWait(() ->
                 applyVariableType(program, functionAddrStr, variableName, newType, success));
         } catch (InterruptedException | InvocationTargetException e) {
             Msg.error(this, "Failed to execute set variable type on Swing thread", e);
@@ -1126,7 +1407,7 @@ public class GhidraMCPPlugin extends Plugin {
     /**
      * Helper method that performs the actual variable type change
      */
-    private void applyVariableType(Program program, String functionAddrStr, 
+    private void applyVariableType(Program program, String functionAddrStr,
                                   String variableName, String newType, AtomicBoolean success) {
         try {
             // Find the function
@@ -1163,7 +1444,7 @@ public class GhidraMCPPlugin extends Plugin {
                 return;
             }
 
-            Msg.info(this, "Found high variable for: " + variableName + 
+            Msg.info(this, "Found high variable for: " + variableName +
                      " with current type " + highVar.getDataType().getName());
 
             // Find the data type
@@ -1253,21 +1534,21 @@ public class GhidraMCPPlugin extends Plugin {
         try {
             Address addr = program.getAddressFactory().getAddress(addressStr);
             ReferenceManager refManager = program.getReferenceManager();
-            
+
             ReferenceIterator refIter = refManager.getReferencesTo(addr);
-            
+
             List<String> refs = new ArrayList<>();
             while (refIter.hasNext()) {
                 Reference ref = refIter.next();
                 Address fromAddr = ref.getFromAddress();
                 RefType refType = ref.getReferenceType();
-                
+
                 Function fromFunc = program.getFunctionManager().getFunctionContaining(fromAddr);
                 String funcInfo = (fromFunc != null) ? " in " + fromFunc.getName() : "";
-                
+
                 refs.add(String.format("From %s%s [%s]", fromAddr, funcInfo, refType.getName()));
             }
-            
+
             return paginateList(refs, offset, limit);
         } catch (Exception e) {
             return "Error getting references to address: " + e.getMessage();
@@ -1285,14 +1566,14 @@ public class GhidraMCPPlugin extends Plugin {
         try {
             Address addr = program.getAddressFactory().getAddress(addressStr);
             ReferenceManager refManager = program.getReferenceManager();
-            
+
             Reference[] references = refManager.getReferencesFrom(addr);
-            
+
             List<String> refs = new ArrayList<>();
             for (Reference ref : references) {
                 Address toAddr = ref.getToAddress();
                 RefType refType = ref.getReferenceType();
-                
+
                 String targetInfo = "";
                 Function toFunc = program.getFunctionManager().getFunctionAt(toAddr);
                 if (toFunc != null) {
@@ -1303,10 +1584,10 @@ public class GhidraMCPPlugin extends Plugin {
                         targetInfo = " to data " + (data.getLabel() != null ? data.getLabel() : data.getPathName());
                     }
                 }
-                
+
                 refs.add(String.format("To %s%s [%s]", toAddr, targetInfo, refType.getName()));
             }
-            
+
             return paginateList(refs, offset, limit);
         } catch (Exception e) {
             return "Error getting references from address: " + e.getMessage();
@@ -1328,24 +1609,24 @@ public class GhidraMCPPlugin extends Plugin {
                 if (function.getName().equals(functionName)) {
                     Address entryPoint = function.getEntryPoint();
                     ReferenceIterator refIter = program.getReferenceManager().getReferencesTo(entryPoint);
-                    
+
                     while (refIter.hasNext()) {
                         Reference ref = refIter.next();
                         Address fromAddr = ref.getFromAddress();
                         RefType refType = ref.getReferenceType();
-                        
+
                         Function fromFunc = funcManager.getFunctionContaining(fromAddr);
                         String funcInfo = (fromFunc != null) ? " in " + fromFunc.getName() : "";
-                        
+
                         refs.add(String.format("From %s%s [%s]", fromAddr, funcInfo, refType.getName()));
                     }
                 }
             }
-            
+
             if (refs.isEmpty()) {
                 return "No references found to function: " + functionName;
             }
-            
+
             return paginateList(refs, offset, limit);
         } catch (Exception e) {
             return "Error getting function references: " + e.getMessage();
@@ -1361,20 +1642,20 @@ public class GhidraMCPPlugin extends Plugin {
 
         List<String> lines = new ArrayList<>();
         DataIterator dataIt = program.getListing().getDefinedData(true);
-        
+
         while (dataIt.hasNext()) {
             Data data = dataIt.next();
-            
+
             if (data != null && isStringData(data)) {
                 String value = data.getValue() != null ? data.getValue().toString() : "";
-                
+
                 if (filter == null || value.toLowerCase().contains(filter.toLowerCase())) {
                     String escapedValue = escapeString(value);
                     lines.add(String.format("%s: \"%s\"", data.getAddress(), escapedValue));
                 }
             }
         }
-        
+
         return paginateList(lines, offset, limit);
     }
 
@@ -1383,7 +1664,7 @@ public class GhidraMCPPlugin extends Plugin {
      */
     private boolean isStringData(Data data) {
         if (data == null) return false;
-        
+
         DataType dt = data.getDataType();
         String typeName = dt.getName().toLowerCase();
         return typeName.contains("string") || typeName.contains("char") || typeName.equals("unicode");
@@ -1394,7 +1675,7 @@ public class GhidraMCPPlugin extends Plugin {
      */
     private String escapeString(String input) {
         if (input == null) return "";
-        
+
         StringBuilder sb = new StringBuilder();
         for (int i = 0; i < input.length(); i++) {
             char c = input.charAt(i);
@@ -1491,7 +1772,7 @@ public class GhidraMCPPlugin extends Plugin {
                 return dtm.getDataType("/int");
         }
     }
-    
+
     /**
      * Find a data type by name in all categories/folders of the data type manager
      * This searches through all categories rather than just the root
@@ -1515,7 +1796,7 @@ public class GhidraMCPPlugin extends Plugin {
         Iterator<DataType> allTypes = dtm.getAllDataTypes();
         while (allTypes.hasNext()) {
             DataType dt = allTypes.next();
-            // Check if the name matches exactly (case-sensitive) 
+            // Check if the name matches exactly (case-sensitive)
             if (dt.getName().equals(name)) {
                 return dt;
             }
@@ -1630,11 +1911,39 @@ public class GhidraMCPPlugin extends Plugin {
     }
 
     private void sendResponse(HttpExchange exchange, String response) throws IOException {
-        byte[] bytes = response.getBytes(StandardCharsets.UTF_8);
-        exchange.getResponseHeaders().set("Content-Type", "text/plain; charset=utf-8");
-        exchange.sendResponseHeaders(200, bytes.length);
-        try (OutputStream os = exchange.getResponseBody()) {
-            os.write(bytes);
+        try {
+            byte[] bytes = response.getBytes(StandardCharsets.UTF_8);
+            exchange.getResponseHeaders().set("Content-Type", "text/plain; charset=utf-8");
+            exchange.sendResponseHeaders(200, bytes.length);
+            try (OutputStream os = exchange.getResponseBody()) {
+                os.write(bytes);
+            }
+        } catch (IOException e) {
+            // If connection was closed/aborted, just close the exchange
+            try {
+                exchange.close();
+            } catch (Exception ignored) {
+            }
+            throw e;
+        }
+    }
+
+    private void sendErrorResponse(HttpExchange exchange, int statusCode, String message) throws IOException {
+        try {
+            byte[] bytes = message.getBytes(StandardCharsets.UTF_8);
+            exchange.getResponseHeaders().set("Content-Type", "text/plain; charset=utf-8");
+            exchange.sendResponseHeaders(statusCode, bytes.length);
+            try (OutputStream os = exchange.getResponseBody()) {
+                os.write(bytes);
+            }
+        } catch (IOException e) {
+            // If headers already sent or connection closed, just log and close
+            try {
+                exchange.close();
+            } catch (Exception ignored) {
+                // Ignore errors when closing
+            }
+            throw e;
         }
     }
 
