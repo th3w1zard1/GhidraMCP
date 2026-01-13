@@ -1,4 +1,4 @@
-package com.lauriewired;
+package com.th3w1zard1;
 
 import junit.framework.Test;
 import junit.framework.TestCase;

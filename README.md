@@ -1,9 +1,9 @@
 [![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://www.apache.org/licenses/LICENSE-2.0)
-[![GitHub release (latest by date)](https://img.shields.io/github/v/release/LaurieWired/GhidraMCP)](https://github.com/LaurieWired/GhidraMCP/releases)
-[![GitHub stars](https://img.shields.io/github/stars/LaurieWired/GhidraMCP)](https://github.com/LaurieWired/GhidraMCP/stargazers)
-[![GitHub forks](https://img.shields.io/github/forks/LaurieWired/GhidraMCP)](https://github.com/LaurieWired/GhidraMCP/network/members)
-[![GitHub contributors](https://img.shields.io/github/contributors/LaurieWired/GhidraMCP)](https://github.com/LaurieWired/GhidraMCP/graphs/contributors)
-[![Follow @lauriewired](https://img.shields.io/twitter/follow/lauriewired?style=social)](https://twitter.com/lauriewired)
+[![GitHub release (latest by date)](https://img.shields.io/github/v/release/th3w1zard1/GhidraMCP)](https://github.com/th3w1zard1/GhidraMCP/releases)
+[![GitHub stars](https://img.shields.io/github/stars/th3w1zard1/GhidraMCP)](https://github.com/th3w1zard1/GhidraMCP/stargazers)
+[![GitHub forks](https://img.shields.io/github/forks/th3w1zard1/GhidraMCP)](https://github.com/th3w1zard1/GhidraMCP/network/members)
+[![GitHub contributors](https://img.shields.io/github/contributors/th3w1zard1/GhidraMCP)](https://github.com/th3w1zard1/GhidraMCP/graphs/contributors)
+[![Follow @th3w1zard1](https://img.shields.io/twitter/follow/th3w1zard1?style=social)](https://twitter.com/th3w1zard1)
 
 ![ghidra_MCP_logo](https://github.com/user-attachments/assets/4986d702-be3f-4697-acce-aea55cd79ad3)
 
@@ -36,7 +36,8 @@ https://github.com/user-attachments/assets/36080514-f227-44bd-af84-78e29ee1d7f9
 
 GhidraMCP bridges Ghidra's powerful reverse engineering capabilities with AI language models, enabling autonomous binary analysis.
 
-Just tell your AI assistant to **analyze the binary**:
+## Ghidra
+First, download the latest [release](https://github.com/th3w1zard1/GhidraMCP/releases) from this repository. This contains the Ghidra plugin and Python MCP client. Then, you can directly import the plugin into Ghidra.
 
 ```txt
 Analyze the main function and trace where user input flows. Use GhidraMCP tools.
@@ -52,7 +53,7 @@ Analyze the main function and trace where user input flows. Use GhidraMCP tools.
 
 ### Step 1: Install Ghidra Plugin
 
-1. Download the latest [release](https://github.com/LaurieWired/GhidraMCP/releases) from this repository
+1. Download the latest [release](https://github.com/th3w1zard1/GhidraMCP/releases) from this repository
 2. Run Ghidra
 3. Select `File` -> `Install Extensions`
 4. Click the `+` button
@@ -153,7 +154,8 @@ claude mcp add ghidra -- python /ABSOLUTE_PATH_TO/bridge_mcp_ghidra.py --ghidra-
 Or for SSE transport:
 
 ```sh
-claude mcp add --transport sse ghidra http://127.0.0.1:8081/sse
+python bridge_mcp_ghidra.py --transport sse --mcp-host 127.0.0.1 --mcp-port 8081 --ghidra-server http://127.0.0.1:8080/
+claude mcp add --transport sse ghidra -- http://127.0.0.1:8081/sse
 ```
 
 </details>
@@ -326,32 +328,16 @@ More info is available on [BoltAI's Documentation site](https://docs.boltai.com/
 
 ### Install in Windows
 
-On Windows, use `python` or `py` depending on your Python installation:
+On Windows, use `cmd` with `/c` flag:
 
 ```json
 {
   "mcpServers": {
     "ghidra": {
-      "command": "python",
+      "command": "cmd",
       "args": [
-        "C:\\FULL\\PATH\\TO\\bridge_mcp_ghidra.py",
-        "--ghidra-server",
-        "http://127.0.0.1:8080/"
-      ]
-    }
-  }
-}
-```
-
-Or if Python is not in PATH:
-
-```json
-{
-  "mcpServers": {
-    "ghidra": {
-      "command": "py",
-      "args": [
-        "-3",
+        "/c",
+        "python",
         "C:\\FULL\\PATH\\TO\\bridge_mcp_ghidra.py",
         "--ghidra-server",
         "http://127.0.0.1:8080/"
@@ -999,9 +985,15 @@ pip install -r requirements.txt
 
 ## 🏗️ Building from Source
 
-To build the Ghidra plugin from source:
+### Prerequisites
 
-1. **Copy Ghidra JAR files** from your Ghidra installation to this project's `lib/` directory:
+1. Java Development Kit (JDK) 11 or higher
+2. Maven 3.6+
+3. Ghidra installation
+
+### Build Steps
+
+1. **Copy Ghidra JARs** to the project's `lib/` directory:
    - `Ghidra/Features/Base/lib/Base.jar`
    - `Ghidra/Features/Decompiler/lib/Decompiler.jar`
    - `Ghidra/Framework/Docking/lib/Docking.jar`
@@ -1011,50 +1003,112 @@ To build the Ghidra plugin from source:
    - `Ghidra/Framework/Utility/lib/Utility.jar`
    - `Ghidra/Framework/Gui/lib/Gui.jar`
 
-2. **Build with Maven:**
-
+2. **Build with Maven**:
    ```bash
    mvn clean package assembly:single
    ```
 
-3. **Install the generated ZIP:**
-   - The build creates a `GhidraMCP-*.zip` file
-   - Install it in Ghidra via `File` -> `Install Extensions`
+3. **Install the extension**:
+   - The generated zip file (`target/GhidraMCP-*.zip`) contains:
+     - `lib/GhidraMCP.jar`
+     - `extension.properties`
+     - `Module.manifest`
+   - Install via Ghidra's `File` -> `Install Extensions`
 
-## 📚 Development
+### Python Bridge Setup
 
-### Project Structure
-
-```
-GhidraMCP/
-├── src/main/java/com/lauriewired/
-│   └── GhidraMCPPlugin.java    # Main Ghidra plugin (HTTP server)
-├── bridge_mcp_ghidra.py         # Python MCP bridge
-├── pom.xml                       # Maven build configuration
-└── requirements.txt              # Python dependencies
-```
-
-### Running Tests
-
-The bridge can be tested manually:
+The Python bridge requires:
 
 ```bash
-python bridge_mcp_ghidra.py --ghidra-server http://127.0.0.1:8080/ --verbose
+pip install -r requirements.txt
 ```
 
-### Environment Variables
+Or install dependencies manually:
+- `requests>=2,<3`
+- `mcp>=1.2.0,<2`
 
-The bridge supports the following environment variables:
+## 🚨 Troubleshooting
 
-- `GHIDRA_SERVER_URL`: Default Ghidra server URL (default: `http://127.0.0.1:8080/`)
-- `MCP_HOST`: Host for SSE transport (default: `127.0.0.1`)
-- `MCP_PORT`: Port for SSE transport (default: `8081`)
+<details>
+<summary><b>Ghidra Plugin Not Loading</b></summary>
 
-## 📖 Documentation
+1. Ensure Ghidra is restarted after installing the extension
+2. Check that the plugin is enabled: `File` -> `Configure` -> `Developer` -> `GhidraMCPPlugin`
+3. Verify the extension is installed: `File` -> `Install Extensions` (should show as installed)
+4. Check Ghidra's console for error messages
 
-- **Implementation Summary**: See [IMPLEMENTATION_SUMMARY.md](./IMPLEMENTATION_SUMMARY.md) for detailed tool documentation
-- **Ghidra Documentation**: [https://ghidra-sre.org](https://ghidra-sre.org)
-- **MCP Specification**: [https://modelcontextprotocol.io](https://modelcontextprotocol.io)
+</details>
+
+<details>
+<summary><b>HTTP Server Not Starting</b></summary>
+
+1. Check if port 8080 is already in use:
+   ```bash
+   # Linux/macOS
+   lsof -i :8080
+   
+   # Windows
+   netstat -ano | findstr :8080
+   ```
+
+2. Change the port in Ghidra: `Edit` -> `Tool Options` -> `GhidraMCP HTTP Server` -> `Server Port`
+
+3. Update your MCP client configuration to use the new port
+
+</details>
+
+<details>
+<summary><b>Python Bridge Connection Errors</b></summary>
+
+1. Verify Ghidra is running and the HTTP server is active
+2. Check the `--ghidra-server` URL matches your Ghidra instance (default: `http://127.0.0.1:8080/`)
+3. Ensure Python can access the bridge script:
+   ```bash
+   python bridge_mcp_ghidra.py --ghidra-server http://127.0.0.1:8080/
+   ```
+4. For SSE transport issues, ensure the MCP port (default: 8081) is available
+
+</details>
+
+<details>
+<summary><b>MCP Client Not Recognizing Tools</b></summary>
+
+1. Restart your MCP client after configuration changes
+2. Verify the bridge script path is absolute and correct
+3. Check Python version (requires 3.10+):
+   ```bash
+   python --version
+   ```
+4. Ensure all Python dependencies are installed:
+   ```bash
+   pip install -r requirements.txt
+   ```
+
+</details>
+
+<details>
+<summary><b>Program Not Found Errors</b></summary>
+
+1. Ensure a program is loaded in Ghidra (not just a project)
+2. The program must be analyzed (run auto-analysis if needed)
+3. Some tools require specific program states (e.g., decompilation requires analyzed functions)
+
+</details>
+
+<details>
+<summary><b>Decompilation Failures</b></summary>
+
+1. Ensure the function has been analyzed by Ghidra
+2. Some functions may fail to decompile (e.g., obfuscated code, incomplete analysis)
+3. Try running auto-analysis: `Analysis` -> `Auto Analyze`
+4. Check Ghidra's console for decompiler error messages
+
+</details>
+## 📚 Additional Resources
+
+- [Ghidra Official Documentation](https://ghidra-sre.org/)
+- [Model Context Protocol Specification](https://modelcontextprotocol.io/)
+- [Implementation Summary](./IMPLEMENTATION_SUMMARY.md) - Detailed tool documentation
 
 ## 🤝 Contributing
 
@@ -1076,6 +1130,6 @@ Apache License 2.0 - See [LICENSE](./LICENSE) file for details.
 
 ## 🔗 Links
 
-- **GitHub**: [https://github.com/LaurieWired/GhidraMCP](https://github.com/LaurieWired/GhidraMCP)
-- **Releases**: [https://github.com/LaurieWired/GhidraMCP/releases](https://github.com/LaurieWired/GhidraMCP/releases)
-- **Follow**: [@lauriewired](https://twitter.com/lauriewired)
+- **GitHub**: [https://github.com/th3w1zard1/GhidraMCP](https://github.com/th3w1zard1/GhidraMCP)
+- **Releases**: [https://github.com/th3w1zard1/GhidraMCP/releases](https://github.com/th3w1zard1/GhidraMCP/releases)
+- **Follow**: [@th3w1zard1](https://twitter.com/th3w1zard1)

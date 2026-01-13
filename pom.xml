@@ -3,70 +3,82 @@
          xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
 
   <modelVersion>4.0.0</modelVersion>
-  <groupId>com.lauriewired</groupId>
+  <groupId>com.th3w1zard1</groupId>
   <artifactId>GhidraMCP</artifactId>
   <packaging>jar</packaging>
   <version>1.0-SNAPSHOT</version>
   <name>GhidraMCP</name>
   <url>http://maven.apache.org</url>
 
+  <properties>
+    <!-- Ghidra installation directory - read from environment variable or use default -->
+    <ghidra.install.dir>${env.GHIDRA_INSTALL_DIR}</ghidra.install.dir>
+  </properties>
+
   <dependencies>
     <!-- Ghidra JARs as system-scoped dependencies -->
+    <!-- Using systemPath pointing to external Ghidra installation directory (not project directory) -->
     <dependency>
       <groupId>ghidra</groupId>
       <artifactId>Generic</artifactId>
       <version>12.0</version>
       <scope>system</scope>
-      <systemPath>${project.basedir}/lib/Generic.jar</systemPath>
+      <systemPath>${ghidra.install.dir}/Ghidra/Framework/Generic/lib/Generic.jar</systemPath>
     </dependency>
     <dependency>
       <groupId>ghidra</groupId>
       <artifactId>SoftwareModeling</artifactId>
       <version>12.0</version>
       <scope>system</scope>
-      <systemPath>${project.basedir}/lib/SoftwareModeling.jar</systemPath>
+      <systemPath>${ghidra.install.dir}/Ghidra/Framework/SoftwareModeling/lib/SoftwareModeling.jar</systemPath>
     </dependency>
     <dependency>
       <groupId>ghidra</groupId>
       <artifactId>Project</artifactId>
       <version>12.0</version>
       <scope>system</scope>
-      <systemPath>${project.basedir}/lib/Project.jar</systemPath>
+      <systemPath>${ghidra.install.dir}/Ghidra/Framework/Project/lib/Project.jar</systemPath>
     </dependency>
     <dependency>
       <groupId>ghidra</groupId>
       <artifactId>Docking</artifactId>
       <version>12.0</version>
       <scope>system</scope>
-      <systemPath>${project.basedir}/lib/Docking.jar</systemPath>
+      <systemPath>${ghidra.install.dir}/Ghidra/Framework/Docking/lib/Docking.jar</systemPath>
     </dependency>
     <dependency>
       <groupId>ghidra</groupId>
       <artifactId>Decompiler</artifactId>
       <version>12.0</version>
       <scope>system</scope>
-      <systemPath>${project.basedir}/lib/Decompiler.jar</systemPath>
+      <systemPath>${ghidra.install.dir}/Ghidra/Features/Decompiler/lib/Decompiler.jar</systemPath>
     </dependency>
     <dependency>
       <groupId>ghidra</groupId>
       <artifactId>Utility</artifactId>
       <version>12.0</version>
       <scope>system</scope>
-      <systemPath>${project.basedir}/lib/Utility.jar</systemPath>
+      <systemPath>${ghidra.install.dir}/Ghidra/Framework/Utility/lib/Utility.jar</systemPath>
     </dependency>
     <dependency>
       <groupId>ghidra</groupId>
       <artifactId>Base</artifactId>
       <version>12.0</version>
       <scope>system</scope>
-      <systemPath>${project.basedir}/lib/Base.jar</systemPath>
+      <systemPath>${ghidra.install.dir}/Ghidra/Features/Base/lib/Base.jar</systemPath>
     </dependency>
 
     <!-- JSON library -->
     <dependency>
-      <groupId>org.json</groupId>
-      <artifactId>json</artifactId>
-      <version>20240303</version>
+    <!-- Uncomment for Ghidra version 11.3.2 -->
+      <!-- <groupId>org.json</groupId> -->
+      <!-- <artifactId>json</artifactId> -->
+      <!-- <version>20240303</version> -->
+      <groupId>ghidra</groupId>
+      <artifactId>Gui</artifactId>
+      <version>12.0</version>
+      <scope>system</scope>
+      <systemPath>${ghidra.install.dir}/Ghidra/Framework/Gui/lib/Gui.jar</systemPath>
     </dependency>
 
     <!-- JUnit (test only) -->
